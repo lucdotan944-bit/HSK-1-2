@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hán Ngữ+ — Học tiếng Trung HSK</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <nav class="nav">
+            <div class="nav-inner">
+                <div class="logo" onclick="showPage('home')">
+                    <span class="logo-char">汉</span>
+                    <span class="logo-text">Hán Ngữ+</span>
+                    <span class="logo-badge">HSK</span>
+                </div>
+                <div class="nav-links">
+                    <a onclick="showPage('home')" class="active" data-page="home">🏠 Học</a>
+                    <a onclick="showPage('review')" data-page="review">🔄 Ôn</a>
+                    <a onclick="showPage('words')" data-page="words">📚 Từ</a>
+                    <a onclick="showPage('dialogues')" data-page="dialogues">💬 Hội thoại</a>
+                    <a onclick="showPage('progress')" data-page="progress">📊 Tiến độ</a>
+                </div>
+            </div>
+        </nav>
+
+        <main>
+            <!-- HOME: Theme-based lesson cards -->
+            <section id="page-home" class="page active">
+                <div class="hero">
+                    <h1>Chào mừng đến với <span class="highlight">Hán Ngữ+</span></h1>
+                    <p>Chọn chủ đề để bắt đầu học</p>
+                </div>
+                <div class="stats-row" id="homeStats">
+                    <div class="stat-chip" onclick="showPage('review')"><span class="stat-num" id="statDue">0</span> cần ôn</div>
+                    <div class="stat-chip" onclick="showPage('progress')"><span class="stat-num" id="statLearned">0</span> đã thuộc</div>
+                    <div class="stat-chip"><span class="stat-num" id="statTotal">0</span> từ</div>
+                    <div class="stat-chip" onclick="showPage('dialogues')"><span class="stat-num" id="statDlg">0</span> hội thoại</div>
+                </div>
+                <div class="theme-grid" id="themeGrid">
+                    <!-- Dynamically populated -->
+                </div>
+            </section>
+
+            <!-- LESSON: Theme word-by-word learning -->
+            <section id="page-lesson" class="page">
+                <div class="lesson-header">
+                    <button class="btn-back" onclick="showPage('home')">←</button>
+                    <span id="lessonTitle">Chủ đề</span>
+                    <span class="lesson-progress" id="lessonProgress">0/0</span>
+                </div>
+                <div id="lessonContent">
+                    <div class="lesson-card">
+                        <div class="lesson-word">
+                            <div class="lesson-char" id="lsChar">我</div>
+                            <div class="lesson-pinyin" id="lsPinyin">wǒ</div>
+                            <div class="lesson-meaning" id="lsMeaning">tôi, mình</div>
+                            <div class="lesson-sino" id="lsSinoViet"></div>
+                        </div>
+                        <div class="lesson-sentence" id="lsSentence">
+                            <div class="ls-sent-cn" id="lsSentCn">我是越南人。</div>
+                            <div class="ls-sent-vi" id="lsSentVi">Tôi là người Việt Nam.</div>
+                        </div>
+                        <div class="lesson-context-note" id="lsContextNote"></div>
+                        <div class="lesson-actions">
+                            <button class="btn-audio-lg" onclick="playLessonAudio()">🔊 Nghe</button>
+                        </div>
+                    </div>
+                    <div class="lesson-nav">
+                        <button class="btn btn-secondary" onclick="prevLessonWord()" id="lsPrevBtn">◀ Trước</button>
+                        <div class="lesson-dots" id="lsDots"></div>
+                        <button class="btn btn-primary" onclick="nextLessonWord()" id="lsNextBtn">Tiếp ▶</button>
+                    </div>
+                </div>
+                <div id="lessonDone" style="display:none" class="done-message">
+                    <h3>🎉 Hoàn thành chủ đề!</h3>
+                    <p id="lessonSummary">Bạn đã học xong tất cả từ.</p>
+                    <button class="btn btn-primary" onclick="showPage('review')">🔄 Ôn tập ngay</button>
+                    <button class="btn btn-secondary" onclick="showPage('home')" style="margin-top:8px">🏠 Về trang chủ</button>
+                </div>
+            </section>
+
+            <!-- REVIEW -->
+            <section id="page-review" class="page">
+                <div class="page-header">
+                    <h2>🔄 Ôn tập</h2>
+                </div>
+                <div class="review-controls">
+                    <button class="btn btn-primary" onclick="startReview()" id="startReviewBtn">Bắt đầu ôn tập</button>
+                    <span class="review-count" id="reviewCount"></span>
+                </div>
+                <div id="reviewContainer" style="display:none">
+                    <div class="flashcard" id="flashcard" onclick="flipCard()">
+                        <div class="flashcard-inner">
+                            <div class="flashcard-front">
+                                <div class="word-char" id="fcChar">你</div>
+                                <div class="word-pinyin" id="fcPinyin">nǐ</div>
+                            </div>
+                            <div class="flashcard-back">
+                                <div class="word-meaning" id="fcMeaning">bạn</div>
+                                <div class="word-sino-viet" id="fcSinoViet"></div>
+                                <div class="word-sentence" id="fcSentence"></div>
+                                <div class="word-sentence-vi" id="fcSentenceVi"></div>
+                                <div class="word-context-note" id="fcContextNote"></div>
+                                <div class="word-hsk">HSK <span id="fcLevel">1</span></div>
+                                <button class="btn-audio" onclick="playReviewAudio(event)">🔊 Nghe</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="quality-buttons">
+                        <button onclick="submitReview(0)" class="q-btn q-0">😵 Quên</button>
+                        <button onclick="submitReview(1)" class="q-btn q-1">😓 Khó</button>
+                        <button onclick="submitReview(3)" class="q-btn q-3">🤔 Hơi nhớ</button>
+                        <button onclick="submitReview(4)" class="q-btn q-4">😊 Dễ</button>
+                        <button onclick="submitReview(5)" class="q-btn q-5">😎 Hoàn hảo</button>
+                    </div>
+                    <div class="review-progress" id="reviewProgress">
+                        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+                        <span id="progressText">0/0</span>
+                    </div>
+                </div>
+                <div id="reviewDone" style="display:none" class="done-message">
+                    <h3>🎉 Hoàn thành!</h3>
+                    <p>Bạn đã ôn tập xong.</p>
+                    <button class="btn btn-primary" onclick="showPage('home')">Về trang chủ</button>
+                </div>
+            </section>
+
+            <!-- WORDS LIST -->
+            <section id="page-words" class="page">
+                <div class="page-header">
+                    <h2>📚 Từ vựng</h2>
+                </div>
+                <div class="word-tabs">
+                    <button class="tab active" onclick="switchWordTab(1)">HSK 1</button>
+                    <button class="tab" onclick="switchWordTab(2)">HSK 2</button>
+                </div>
+                <div class="word-table-wrap">
+                    <table class="word-table" id="wordTable">
+                        <thead><tr><th>Từ</th><th>Pinyin</th><th>Nghĩa</th><th>Hán-Việt</th><th>Câu</th></tr></thead>
+                        <tbody id="wordTableBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- DIALOGUES LIST -->
+            <section id="page-dialogues" class="page">
+                <div class="page-header">
+                    <h2>💬 Hội thoại thực tế</h2>
+                </div>
+                <div class="dlg-tabs">
+                    <button class="tab active" onclick="switchDlgTab(0)">Tất cả</button>
+                    <button class="tab" onclick="switchDlgTab(1)">HSK 1</button>
+                    <button class="tab" onclick="switchDlgTab(2)">HSK 2</button>
+                </div>
+                <div id="dlgList" class="dlg-list"></div>
+            </section>
+
+            <!-- DIALOGUE DETAIL -->
+            <section id="page-dialogue" class="page">
+                <div class="lesson-header">
+                    <button class="btn-back" onclick="showPage('dialogues')">←</button>
+                    <span id="dlgTitle">Hội thoại</span>
+                </div>
+                <div id="dlgContext" class="dlg-context"></div>
+                <div id="dlgLines" class="dlg-chat"></div>
+            </section>
+
+            <!-- PROGRESS -->
+            <section id="page-progress" class="page">
+                <div class="page-header">
+                    <h2>📊 Tiến độ</h2>
+                </div>
+                <div class="progress-grid" id="progressGrid"></div>
+                <div class="progress-detail" id="progressDetail"></div>
+            </section>
+        </main>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>

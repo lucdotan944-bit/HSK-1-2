@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 150">
+  <rect width="200" height="150" rx="12" fill="#F1FAEE"/>
+  <!-- Clock SVG -->
+  <circle cx="100" cy="75" r="45" fill="white" stroke="#457B9D" stroke-width="3"/>
+  <circle cx="100" cy="75" r="3" fill="#E63946"/>
+  <!-- Hour markers -->
+  <line x1="100" y1="35" x2="100" y2="45" stroke="#457B9D" stroke-width="2.5"/>
+  <line x1="100" y1="105" x2="100" y2="115" stroke="#457B9D" stroke-width="2.5"/>
+  <line x1="60" y1="75" x2="70" y2="75" stroke="#457B9D" stroke-width="2.5"/>
+  <line x1="130" y1="75" x2="140" y2="75" stroke="#457B9D" stroke-width="2.5"/>
+  <!-- Hands -->
+  <line x1="100" y1="75" x2="100" y2="45" stroke="#1D3557" stroke-width="2.5"/>
+  <line x1="100" y1="75" x2="125" y2="60" stroke="#E63946" stroke-width="2"/>
+  <!-- Numbers -->
+  <text x="100" y="38" text-anchor="middle" font-size="9" fill="#457B9D">12</text>
+  <text x="100" y="118" text-anchor="middle" font-size="9" fill="#457B9D">6</text>
+  <text x="55" y="78" text-anchor="middle" font-size="9" fill="#457B9D">9</text>
+  <text x="145" y="78" text-anchor="middle" font-size="9" fill="#457B9D">3</text>
+  <!-- Label -->
+  <text x="100" y="143" text-anchor="middle" font-size="11" fill="#1D3557" font-weight="bold">时间</text>
+</svg>
