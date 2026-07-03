@@ -11,6 +11,12 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+def _ensure_column(conn, table, column, coldef):
+    """Idempotently add a column (SQLite has no ADD COLUMN IF NOT EXISTS)."""
+    cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coldef}")
+
 def init_db():
     conn = get_db()
     conn.executescript("""
@@ -104,6 +110,48 @@ def init_db():
             FOREIGN KEY (word_id) REFERENCES words(id)
         );
 
+        CREATE TABLE IF NOT EXISTS user_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            xp INTEGER DEFAULT 0,
+            current_streak INTEGER DEFAULT 0,
+            longest_streak INTEGER DEFAULT 0,
+            last_active_date TEXT DEFAULT '',
+            placement_level INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS badges_earned (
+            badge_id TEXT PRIMARY KEY,
+            earned_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS xp_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            amount INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS writing_practice (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            character TEXT NOT NULL,
+            attempts INTEGER DEFAULT 0,
+            best_mistakes INTEGER DEFAULT NULL,
+            last_practiced TEXT DEFAULT (datetime('now')),
+            mastered INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS pronunciation_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            word_id INTEGER,
+            target_text TEXT NOT NULL,
+            recognized_text TEXT DEFAULT '',
+            score TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (word_id) REFERENCES words(id)
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_writing_char ON writing_practice(character);
+        CREATE INDEX IF NOT EXISTS idx_xp_log_created ON xp_log(created_at);
         CREATE INDEX IF NOT EXISTS idx_next_review ON user_words(next_review);
         CREATE INDEX IF NOT EXISTS idx_hsk_level ON words(hsk_level);
         CREATE INDEX IF NOT EXISTS idx_dialogue_level ON dialogues(hsk_level);

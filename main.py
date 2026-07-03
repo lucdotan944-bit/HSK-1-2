@@ -7,7 +7,8 @@ from pydantic import BaseModel
 
 from database import get_db, init_db
 from sm2 import sm2
-from seed_data import get_words, get_hsk1, get_hsk2, get_sentence, get_sino_viet, get_context_note, get_dialogues, THEMES, get_theme_words
+import gamify
+from seed_data import get_words, get_hsk1, get_hsk2, get_sentence, get_sino_viet, get_context_note, get_dialogues, THEMES, get_theme_words, BADGES
 
 app = FastAPI(title="Hán Ngữ+ - Học tiếng Trung HSK")
 
@@ -20,6 +21,13 @@ def startup():
     seed_words()
     seed_themes()
     seed_dialogues()
+    seed_user_state()
+
+def seed_user_state():
+    conn = get_db()
+    conn.execute("INSERT OR IGNORE INTO user_state (id) VALUES (1)")
+    conn.commit()
+    conn.close()
 
 def seed_words():
     conn = get_db()
@@ -112,6 +120,41 @@ def seed_dialogues():
     print(f"Seeded {len(dialogues)} dialogues")
 
 # ---- API Routes ----
+
+@app.get("/api/gamify/state")
+def get_gamify_state():
+    conn = get_db()
+    state = conn.execute("SELECT * FROM user_state WHERE id=1").fetchone()
+    earned = conn.execute("SELECT badge_id, earned_at FROM badges_earned").fetchall()
+    conn.close()
+    badges = []
+    for b in earned:
+        meta = BADGES.get(b["badge_id"], {})
+        badges.append({
+            "badge_id": b["badge_id"],
+            "name": meta.get("name", b["badge_id"]),
+            "icon": meta.get("icon", "🏅"),
+            "desc": meta.get("desc", ""),
+            "earned_at": b["earned_at"],
+        })
+    return {
+        "xp": state["xp"],
+        "current_streak": state["current_streak"],
+        "longest_streak": state["longest_streak"],
+        "placement_level": state["placement_level"],
+        "badges": badges,
+    }
+
+@app.get("/api/badges")
+def list_badges():
+    conn = get_db()
+    earned = {r["badge_id"] for r in conn.execute("SELECT badge_id FROM badges_earned").fetchall()}
+    conn.close()
+    return {"badges": [
+        {"badge_id": bid, "name": b["name"], "icon": b["icon"], "desc": b["desc"],
+         "earned": bid in earned}
+        for bid, b in BADGES.items()
+    ]}
 
 @app.get("/api/stats")
 def get_stats():
@@ -217,15 +260,136 @@ def submit_review(data: ReviewSubmit):
         "INSERT INTO quiz_results (word_id, correct, quiz_type) VALUES (?, ?, 'review')",
         (data.word_id, 1 if quality >= 3 else 0)
     )
+    gamify.touch_streak(conn)
+    gamify.award_xp(conn, gamify.XP_REVIEW_CORRECT if quality >= 3 else gamify.XP_REVIEW_WRONG, 'review')
+    newly_earned = gamify.check_badges(conn)
     conn.commit()
     conn.close()
-    
+
     return {
         "next_review": next_review,
         "repetitions": reps,
         "easiness": round(ef, 2),
-        "interval": interval
+        "interval": interval,
+        "newly_earned_badges": newly_earned
     }
+
+def _generate_choices(conn, word_row, pool_hsk_level):
+    """Sinh câu hỏi trắc nghiệm: nghĩa đúng + 3 nghĩa sai từ cùng pool HSK level."""
+    import random
+    correct = word_row["meanings"].split(",")[0].strip()
+    wrong_rows = conn.execute("""
+        SELECT meanings FROM words
+        WHERE hsk_level <= ? AND id != ?
+        ORDER BY RANDOM() LIMIT 3
+    """, (pool_hsk_level, word_row["id"])).fetchall()
+    choices = [correct] + [r["meanings"].split(",")[0].strip() for r in wrong_rows]
+    random.shuffle(choices)
+    return {
+        "word_id": word_row["id"],
+        "simplified": word_row["simplified"],
+        "pinyin": word_row["pinyin"],
+        "hsk_level": word_row["hsk_level"],
+        "correct_meaning": correct,
+        "choices": choices,
+    }
+
+@app.get("/api/quiz/choices/{hsk_level}")
+def get_quiz_choices(hsk_level: int, count: int = 10, theme_id: str = None):
+    """Câu hỏi trắc nghiệm. theme_id: lấy từ trong theme đó (distractor vẫn từ cả pool level)."""
+    conn = get_db()
+    if theme_id:
+        rows = conn.execute("""
+            SELECT w.id, w.simplified, w.pinyin, w.meanings, w.hsk_level
+            FROM theme_words tw JOIN words w ON tw.word_id = w.id
+            WHERE tw.theme_id = ?
+            ORDER BY RANDOM() LIMIT ?
+        """, (theme_id, count)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT id, simplified, pinyin, meanings, hsk_level
+            FROM words WHERE hsk_level <= ?
+            ORDER BY RANDOM() LIMIT ?
+        """, (hsk_level, count)).fetchall()
+    questions = [_generate_choices(conn, r, hsk_level) for r in rows]
+    conn.close()
+    return {"questions": questions}
+
+class ThemeQuizResult(BaseModel):
+    theme_id: str
+    results: list  # [{word_id, correct}]
+
+@app.post("/api/quiz/theme-result")
+def submit_theme_quiz(data: ThemeQuizResult):
+    conn = get_db()
+    correct_count = 0
+    for r in data.results:
+        is_correct = 1 if r.get("correct") else 0
+        correct_count += is_correct
+        conn.execute(
+            "INSERT INTO quiz_results (word_id, correct, quiz_type) VALUES (?, ?, 'theme_quiz')",
+            (r["word_id"], is_correct)
+        )
+    gamify.touch_streak(conn)
+    gamify.award_xp(conn, correct_count * gamify.XP_QUIZ_CORRECT, 'theme_quiz')
+    gamify.award_xp(conn, gamify.XP_THEME_QUIZ_COMPLETE, 'theme_quiz_complete')
+    newly_earned = gamify.check_badges(conn)
+    conn.commit()
+    conn.close()
+    return {"ok": True, "correct": correct_count, "total": len(data.results),
+            "newly_earned_badges": newly_earned}
+
+@app.get("/api/themes/{theme_id}/related-dialogues")
+def get_related_dialogues(theme_id: str, limit: int = 2):
+    """Hội thoại chia sẻ nhiều từ vựng nhất với theme — gợi ý bước học tiếp theo."""
+    conn = get_db()
+    # So khớp substring trên nội dung thoại (dialogue_words seed theo cụm hanzi nên quá thưa)
+    rows = conn.execute("""
+        SELECT d.id, d.title, d.context, d.hsk_level,
+               COUNT(DISTINCT w.id) as shared_words
+        FROM dialogues d
+        JOIN dialogue_lines dl ON dl.dialogue_id = d.id
+        JOIN theme_words tw ON tw.theme_id = ?
+        JOIN words w ON w.id = tw.word_id
+        WHERE dl.simplified LIKE '%' || w.simplified || '%'
+        GROUP BY d.id
+        ORDER BY shared_words DESC
+        LIMIT ?
+    """, (theme_id, limit)).fetchall()
+    conn.close()
+    return {"dialogues": [dict(r) for r in rows]}
+
+class PlacementSubmit(BaseModel):
+    answers: list  # [{word_id, hsk_level, correct}]
+
+@app.post("/api/placement/submit")
+def submit_placement(data: PlacementSubmit):
+    conn = get_db()
+    hsk2_total = 0
+    hsk2_correct = 0
+    total_correct = 0
+    for a in data.answers:
+        is_correct = 1 if a.get("correct") else 0
+        total_correct += is_correct
+        if a.get("hsk_level") == 2:
+            hsk2_total += 1
+            hsk2_correct += is_correct
+        conn.execute(
+            "INSERT INTO quiz_results (word_id, correct, quiz_type) VALUES (?, ?, 'placement')",
+            (a["word_id"], is_correct)
+        )
+    # Đúng >= 60% câu HSK2 → gợi ý bắt đầu HSK2, ngược lại HSK1
+    hsk2_acc = hsk2_correct / hsk2_total if hsk2_total > 0 else 0
+    recommended = 2 if hsk2_acc >= 0.6 else 1
+    conn.execute("UPDATE user_state SET placement_level=? WHERE id=1", (recommended,))
+    gamify.touch_streak(conn)
+    gamify.award_xp(conn, gamify.XP_PLACEMENT_TEST, 'placement')
+    newly_earned = gamify.check_badges(conn)
+    conn.commit()
+    conn.close()
+    accuracy = total_correct / len(data.answers) if data.answers else 0
+    return {"recommended_level": recommended, "accuracy": round(accuracy, 2),
+            "newly_earned_badges": newly_earned}
 
 @app.get("/api/quiz/{hsk_level}")
 def get_quiz(hsk_level: int, count: int = 10):
@@ -403,9 +567,93 @@ def learn_word_in_theme(theme_id: str, word_id: int):
             correct_count = correct_count + 1
         WHERE word_id = ?
     """, (word_id,))
+    gamify.touch_streak(conn)
+    gamify.award_xp(conn, gamify.XP_LESSON_WORD, 'lesson_word')
+    newly_earned = gamify.check_badges(conn)
+    conn.commit()
+    conn.close()
+    return {"ok": True, "newly_earned_badges": newly_earned}
+
+# ---- PRONUNCIATION ----
+
+class PronunciationLog(BaseModel):
+    word_id: int = None
+    target_text: str
+    recognized_text: str = ""
+    score: str  # 'ok' | 'warn' | 'fail'
+
+@app.post("/api/pronunciation/log")
+def log_pronunciation(data: PronunciationLog):
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO pronunciation_attempts (word_id, target_text, recognized_text, score) VALUES (?, ?, ?, ?)",
+        (data.word_id, data.target_text, data.recognized_text, data.score)
+    )
     conn.commit()
     conn.close()
     return {"ok": True}
+
+# ---- WRITING PRACTICE ----
+
+@app.get("/api/writing/characters")
+def get_writing_characters(hsk_level: int = 2):
+    """Danh sách ký tự đơn (tách từ ghép, dedupe) kèm trạng thái luyện viết."""
+    import re
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT simplified, hsk_level FROM words WHERE hsk_level <= ? ORDER BY hsk_level, id",
+        (hsk_level,)
+    ).fetchall()
+    practiced = {
+        r["character"]: r for r in
+        conn.execute("SELECT character, attempts, best_mistakes, mastered FROM writing_practice").fetchall()
+    }
+    conn.close()
+
+    seen = set()
+    chars = []
+    for row in rows:
+        for ch in re.findall(r'[一-鿿]', row["simplified"]):
+            if ch in seen:
+                continue
+            seen.add(ch)
+            p = practiced.get(ch)
+            chars.append({
+                "character": ch,
+                "hsk_level": row["hsk_level"],
+                "practiced": p is not None,
+                "attempts": p["attempts"] if p else 0,
+                "best_mistakes": p["best_mistakes"] if p else None,
+                "mastered": bool(p["mastered"]) if p else False,
+            })
+    return {"characters": chars}
+
+class WritingComplete(BaseModel):
+    character: str
+    mistakes: int
+
+@app.post("/api/writing/complete")
+def complete_writing(data: WritingComplete):
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO writing_practice (character, attempts, best_mistakes, mastered, last_practiced)
+        VALUES (?, 1, ?, ?, datetime('now'))
+        ON CONFLICT(character) DO UPDATE SET
+            attempts = attempts + 1,
+            best_mistakes = MIN(COALESCE(best_mistakes, 9999), excluded.best_mistakes),
+            mastered = MAX(mastered, excluded.mastered),
+            last_practiced = datetime('now')
+    """, (data.character, data.mistakes, 1 if data.mistakes == 0 else 0))
+    gamify.touch_streak(conn)
+    gamify.award_xp(
+        conn,
+        gamify.XP_WRITING_PERFECT if data.mistakes == 0 else gamify.XP_WRITING_ATTEMPT,
+        'writing'
+    )
+    newly_earned = gamify.check_badges(conn)
+    conn.commit()
+    conn.close()
+    return {"ok": True, "newly_earned_badges": newly_earned}
 
 @app.get("/api/sentence/{word}")
 def get_sentence_api(word: str):

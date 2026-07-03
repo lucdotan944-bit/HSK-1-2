@@ -799,3 +799,20 @@ def get_theme_words(theme_id):
     if not theme:
         return []
     return theme["words"]
+
+# ========== BADGES (huy hiệu) ==========
+BADGES = {
+    "streak_3":    {"name": "3 ngày liên tiếp",       "icon": "🔥", "desc": "Học 3 ngày liên tục"},
+    "streak_7":    {"name": "Một tuần bền bỉ",        "icon": "🔥", "desc": "Học 7 ngày liên tục"},
+    "streak_30":   {"name": "Một tháng kiên trì",     "icon": "🏆", "desc": "Học 30 ngày liên tục"},
+    "words_50":    {"name": "50 từ thuộc lòng",       "icon": "📖", "desc": "Thuộc 50 từ vựng"},
+    "words_150":   {"name": "Bậc thầy từ vựng",       "icon": "🎓", "desc": "Thuộc 150 từ vựng"},
+    "reviews_100": {"name": "Ôn tập chăm chỉ",        "icon": "💪", "desc": "Hoàn thành 100 lượt ôn tập"},
+    "writer_10":   {"name": "Tập viết chữ",           "icon": "✍️", "desc": "Luyện viết 10 chữ Hán"},
+    "writer_50":   {"name": "Cao thủ viết chữ",       "icon": "🖌️", "desc": "Luyện viết 50 chữ Hán"},
+    "xp_500":      {"name": "500 điểm kinh nghiệm",   "icon": "⭐", "desc": "Đạt 500 XP"},
+    "xp_2000":     {"name": "2000 điểm kinh nghiệm",  "icon": "🌟", "desc": "Đạt 2000 XP"},
+}
+
+def get_badges():
+    return BADGES

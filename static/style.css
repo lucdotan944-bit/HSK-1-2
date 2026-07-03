@@ -322,6 +322,129 @@ h2 { font-size: 24px; margin-bottom: 20px; color: var(--text); }
 .progress-stat-label { color: var(--text-light); }
 .progress-stat-value { font-weight: 600; }
 
+/* Gamification */
+.stat-chip-xp { border-color: var(--warning); background: #FFFBEF; cursor: default; }
+.badge-toast {
+    position: fixed; bottom: 24px; right: 24px; z-index: 200;
+    display: flex; align-items: center; gap: 12px;
+    background: var(--success); color: white;
+    padding: 14px 20px; border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    animation: toastIn 0.3s ease;
+}
+@keyframes toastIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+.badge-toast-icon { font-size: 32px; }
+.badge-toast-title { font-size: 12px; opacity: 0.85; }
+.badge-toast-name { font-weight: 700; font-size: 15px; }
+.badge-section-title { font-size: 18px; margin: 24px 0 12px; }
+.badge-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+}
+.badge-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 10px; text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+.badge-card.locked { opacity: 0.4; filter: grayscale(1); }
+.badge-card-icon { font-size: 32px; margin-bottom: 6px; }
+.badge-card-name { font-weight: 600; font-size: 13px; }
+.badge-card-desc { font-size: 11px; color: var(--text-light); margin-top: 2px; }
+
+/* Lesson mini-quiz */
+.quiz-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 32px 24px; text-align: center; max-width: 480px; margin: 0 auto;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+}
+.quiz-progress { font-size: 13px; color: var(--text-light); margin-bottom: 12px; }
+.quiz-char { font-family: var(--font-chinese); font-size: 64px; font-weight: 500; }
+.quiz-pinyin { font-size: 18px; color: var(--accent); margin: 4px 0 12px; }
+.quiz-question { font-size: 14px; color: var(--text-light); margin-bottom: 16px; }
+.quiz-choices { display: grid; gap: 10px; }
+.quiz-choice {
+    padding: 12px 16px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--bg-card); font-size: 15px; cursor: pointer; transition: all 0.15s;
+}
+.quiz-choice:hover:not(:disabled) { border-color: var(--accent); background: #F0F8FF; }
+.quiz-choice.correct { border-color: var(--success); background: #E6F4EA; font-weight: 600; }
+.quiz-choice.wrong { border-color: var(--primary); background: #FDECEA; }
+.quiz-score { margin: 12px 0; font-size: 15px; }
+
+/* Dialogue suggestion card */
+.dlg-suggest-card {
+    background: var(--bg-card); border: 1px solid var(--accent-light); border-radius: 12px;
+    padding: 16px; margin: 16px auto; max-width: 420px; cursor: pointer;
+    text-align: left; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+.dlg-suggest-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.1); border-color: var(--accent); }
+.dlg-suggest-label { font-size: 12px; color: var(--accent); font-weight: 600; margin-bottom: 6px; }
+.dlg-suggest-title { font-weight: 700; font-size: 16px; }
+.dlg-suggest-context { font-size: 13px; color: var(--text-light); margin-top: 4px; }
+
+/* Placement banner */
+.placement-banner {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--bg-card); border: 1px solid var(--warning); border-radius: 12px;
+    padding: 14px 18px; margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+.placement-banner-text { flex: 1; font-size: 14px; }
+.btn-dismiss {
+    background: none; border: none; font-size: 14px; color: var(--text-light);
+    cursor: pointer; padding: 4px 8px;
+}
+.btn-dismiss:hover { color: var(--text); }
+
+/* Writing practice */
+.writing-char-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    gap: 10px; margin-top: 16px;
+}
+.writing-char-chip {
+    font-family: var(--font-chinese); font-size: 32px;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+    aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.15s; box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+.writing-char-chip:hover { border-color: var(--accent); transform: translateY(-2px); }
+.writing-char-chip.practiced { border-color: var(--warning); background: #FFFBEF; }
+.writing-char-chip.mastered { border-color: var(--success); background: #E6F4EA; }
+.writing-stage { text-align: center; }
+.hanzi-writer-target {
+    width: 240px; height: 240px; margin: 16px auto;
+    background: var(--bg-card); border: 2px solid var(--border); border-radius: 16px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+}
+.writing-word-info { font-size: 15px; color: var(--text-light); margin-bottom: 16px; }
+.writing-word-info .wi-pinyin { color: var(--accent); font-weight: 600; }
+.writing-word-info .wi-sino { font-style: italic; }
+.writing-actions { display: flex; gap: 10px; justify-content: center; }
+.writing-result { margin-top: 16px; font-size: 15px; }
+.writing-perfect { color: var(--success); font-weight: 700; }
+.writing-ok { color: var(--text); }
+
+/* Pronunciation check */
+.no-speech-rec .btn-mic, .no-speech-rec .pron-result, .no-speech-rec .dlg-pron-row { display: none !important; }
+.btn-mic { border-color: var(--warning) !important; }
+.btn-mic.listening { background: var(--warning); animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+.btn-mic-sm {
+    font-size: 12px; padding: 4px 10px; border-radius: 14px;
+    border: 1px solid var(--warning); background: var(--bg-card);
+    cursor: pointer; transition: all 0.15s;
+}
+.btn-mic-sm:hover { background: #FFFBEF; }
+.fc-audio-row, .dlg-pron-row {
+    display: flex; align-items: center; gap: 8px; margin-top: 8px;
+    justify-content: center; flex-wrap: wrap;
+}
+.dlg-pron-row { justify-content: flex-start; border-top: 1px dashed var(--border); padding-top: 6px; margin-top: 6px; }
+.pron-result { font-size: 13px; }
+.pron-result.ok { color: var(--success); font-weight: 600; }
+.pron-result.warn { color: #B8860B; }
+.pron-result.fail { color: var(--primary); }
+
 /* Responsive */
 @media (max-width: 768px) {
     .nav-inner { flex-wrap: wrap; height: auto; padding: 8px 0; }

@@ -13,6 +13,11 @@
 - 🎨 **10 chủ đề** — gia đình, màu sắc, thời gian, đồ ăn...
 - 🔊 **Audio** — phát âm chuẩn qua Web Speech API
 - 🔄 **Học theo chủ đề** — chọn theme, học từ theo nhóm
+- 📦 **Lesson trọn gói** — học từ → mini-quiz → gợi ý hội thoại liên quan
+- ✍️ **Luyện viết chữ Hán** — animation thứ tự nét + tự viết có chấm lỗi (HanziWriter)
+- 🎯 **Test xếp trình độ** — 15 câu (~5 phút) gợi ý điểm bắt đầu HSK1/HSK2
+- 🔥 **Gamification** — XP, streak ngày học liên tiếp, 10 huy hiệu
+- 🎤 **Chấm phát âm** — nói vào mic, so khớp với từ đích (Chrome/Edge)
 
 ## Cài đặt & Chạy
 
@@ -35,9 +40,10 @@ python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
 
 ```
 ├── main.py              # FastAPI server + API endpoints
-├── database.py          # SQLite schema (11 tables)
+├── database.py          # SQLite schema (16 tables)
 ├── seed_data.py         # 268 từ + 9 hội thoại + 22 context notes
 ├── sm2.py               # SM-2 spaced repetition algorithm
+├── gamify.py            # XP, streak, huy hiệu
 ├── requirements.txt     # Python dependencies
 ├── .gitignore
 └── static/
@@ -62,13 +68,22 @@ python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
 | `GET /api/themes` | Danh sách chủ đề |
 | `GET /api/progress` | Tiến độ học tập |
 | `POST /api/quiz` | Gửi kết quả quiz |
+| `GET /api/gamify/state` | XP, streak, huy hiệu đã đạt |
+| `GET /api/badges` | Danh mục huy hiệu |
+| `GET /api/quiz/choices/{level}` | Câu hỏi trắc nghiệm (hỗ trợ `theme_id`, `count`) |
+| `POST /api/quiz/theme-result` | Kết quả mini-quiz theo chủ đề |
+| `GET /api/themes/{id}/related-dialogues` | Hội thoại chung từ vựng với chủ đề |
+| `POST /api/placement/submit` | Nộp bài test xếp trình độ |
+| `GET /api/writing/characters` | Ký tự luyện viết + trạng thái |
+| `POST /api/writing/complete` | Ghi nhận kết quả luyện viết |
+| `POST /api/pronunciation/log` | Log kết quả chấm phát âm |
 
 ## Công nghệ
 
 - **Backend**: FastAPI + SQLite + SM-2
 - **Frontend**: Vanilla JS + HTML5 + CSS3
 - **Audio**: Web Speech API (phát âm tiếng Trung)
-- **Database**: SQLite (11 tables)
+- **Database**: SQLite (16 tables)
 
 ## Giấy phép
 
