@@ -2,6 +2,7 @@ import os
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
@@ -9,8 +10,17 @@ from database import get_db, init_db
 from sm2 import sm2
 import gamify
 from seed_data import get_words, get_hsk1, get_hsk2, get_sentence, get_sino_viet, get_context_note, get_dialogues, THEMES, get_theme_words, BADGES
+from hsk_mapping import HSK_MAPPING
+from conversations import CONVERSATIONS
 
 app = FastAPI(title="Hán Ngữ+ - Học tiếng Trung HSK")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -415,13 +425,15 @@ def get_quiz(hsk_level: int, count: int = 10):
 class QuizSubmit(BaseModel):
     word_id: int
     correct: bool
+    quiz_type: str = "quiz"  # 'quiz' | 'listening'
 
 @app.post("/api/quiz")
 def submit_quiz(data: QuizSubmit):
+    quiz_type = data.quiz_type if data.quiz_type in ("quiz", "listening") else "quiz"
     conn = get_db()
     conn.execute(
-        "INSERT INTO quiz_results (word_id, correct, quiz_type) VALUES (?, ?, 'quiz')",
-        (data.word_id, 1 if data.correct else 0)
+        "INSERT INTO quiz_results (word_id, correct, quiz_type) VALUES (?, ?, ?)",
+        (data.word_id, 1 if data.correct else 0, quiz_type)
     )
     conn.commit()
     conn.close()
@@ -662,6 +674,174 @@ def get_sentence_api(word: str):
     if sentence:
         return {"word": word, "cn": sentence[0], "vi": sentence[1]}
     return {"word": word, "cn": None, "vi": None}
+
+# ---- SKILL BREAKDOWN (rule-based, no LLM) ----
+
+PRON_SCORE_MAP = {"ok": 1.0, "warn": 0.5, "fail": 0.0}
+
+def _pct(numerator, denominator):
+    return round(100 * numerator / denominator) if denominator else None
+
+def _compute_skill_breakdown(conn):
+    vocab_row = conn.execute("""
+        SELECT COUNT(*) total, SUM(correct) correct FROM quiz_results
+        WHERE quiz_type IN ('quiz', 'theme_quiz', 'review')
+    """).fetchone()
+    vocab_score = _pct(vocab_row["correct"] or 0, vocab_row["total"] or 0)
+
+    grammar_row = conn.execute("""
+        SELECT COUNT(*) total, SUM(qr.correct) correct FROM quiz_results qr
+        JOIN context_notes cn ON cn.word_id = qr.word_id
+        WHERE qr.quiz_type IN ('quiz', 'theme_quiz', 'review', 'placement')
+    """).fetchone()
+    grammar_score = _pct(grammar_row["correct"] or 0, grammar_row["total"] or 0)
+
+    listening_row = conn.execute("""
+        SELECT COUNT(*) total, SUM(correct) correct FROM quiz_results
+        WHERE quiz_type = 'listening'
+    """).fetchone()
+    listening_score = _pct(listening_row["correct"] or 0, listening_row["total"] or 0)
+
+    pron_rows = conn.execute("SELECT score FROM pronunciation_attempts").fetchall()
+    if pron_rows:
+        speaking_score = round(100 * sum(PRON_SCORE_MAP.get(r["score"], 0) for r in pron_rows) / len(pron_rows))
+    else:
+        speaking_score = None
+
+    skills = {
+        "vocab": {"label": "Từ vựng", "score": vocab_score},
+        "grammar": {"label": "Ngữ pháp", "score": grammar_score},
+        "listening": {"label": "Nghe", "score": listening_score},
+        "speaking": {"label": "Nói", "score": speaking_score},
+    }
+
+    scored = {k: v["score"] for k, v in skills.items() if v["score"] is not None}
+    # Cần ít nhất 2 kỹ năng có dữ liệu mới so sánh được yếu/mạnh có ý nghĩa
+    weakest = min(scored, key=scored.get) if len(scored) >= 2 else None
+    strongest = max(scored, key=scored.get) if len(scored) >= 2 else None
+
+    return skills, weakest, strongest
+
+def _skill_explanation_vi(skills, weakest, strongest):
+    if not weakest:
+        return "Bạn chưa có đủ dữ liệu ở nhiều kỹ năng để so sánh. Hãy luyện thêm ôn tập, nghe, nói để hệ thống đánh giá chính xác hơn."
+    weak_label = skills[weakest]["label"]
+    weak_score = skills[weakest]["score"]
+    parts = [f"Kỹ năng yếu nhất hiện tại của bạn là **{weak_label}** ({weak_score}%)."]
+    if strongest and strongest != weakest:
+        parts.append(f"Bạn đang làm tốt nhất ở **{skills[strongest]['label']}** ({skills[strongest]['score']}%).")
+    tips = {
+        "vocab": "Hãy dành thêm thời gian ôn từ vựng bằng flashcard spaced repetition.",
+        "grammar": "Hãy đọc lại các context note ngữ pháp khi ôn từ và chú ý ví dụ câu.",
+        "listening": "Hãy luyện nghe nhiều hơn qua các đoạn hội thoại có audio.",
+        "speaking": "Hãy luyện nói/đọc theo nhiều hơn và chú ý phản hồi phát âm.",
+    }
+    parts.append(tips.get(weakest, ""))
+    return " ".join(p for p in parts if p)
+
+@app.get("/api/skills/breakdown")
+def get_skill_breakdown():
+    conn = get_db()
+    skills, weakest, strongest = _compute_skill_breakdown(conn)
+    conn.close()
+    return {
+        "skills": skills,
+        "weakest_skill": weakest,
+        "strongest_skill": strongest,
+        "explanation_vi": _skill_explanation_vi(skills, weakest, strongest),
+    }
+
+# ---- HSK 3.0 MAPPING ----
+
+@app.get("/api/hsk-mapping")
+def get_hsk_mapping():
+    return {"mapping": HSK_MAPPING}
+
+# ---- DAILY 5-MINUTE SESSION ----
+
+@app.get("/api/daily-session")
+def get_daily_session():
+    """Lắp ráp phiên học 5 phút/ngày: ôn từ (SM-2), nghe, nói, hội thoại ngắn.
+    Ưu tiên nội dung liên quan tới kỹ năng yếu nhất, nhưng luôn đủ 4 khối."""
+    conn = get_db()
+    skills, weakest, _ = _compute_skill_breakdown(conn)
+
+    review_rows = conn.execute("""
+        SELECT w.id, w.simplified, w.pinyin, w.meanings, w.hsk_level, w.sino_viet
+        FROM words w JOIN user_words uw ON w.id = uw.word_id
+        WHERE uw.next_review <= datetime('now')
+        ORDER BY uw.next_review ASC, uw.repetitions ASC LIMIT 5
+    """).fetchall()
+    review_block = [dict(r) for r in review_rows]
+
+    listen_row = conn.execute("""
+        SELECT dl.dialogue_id, dl.simplified, dl.pinyin, dl.vietnamese
+        FROM dialogue_lines dl ORDER BY RANDOM() LIMIT 1
+    """).fetchone()
+    listening_block = dict(listen_row) if listen_row else None
+
+    speak_row = conn.execute("""
+        SELECT id, simplified, pinyin, meanings FROM words
+        ORDER BY RANDOM() LIMIT 1
+    """).fetchone()
+    speaking_block = dict(speak_row) if speak_row else None
+
+    scenario_ids = list(CONVERSATIONS.keys())
+    import random
+    conversation_id = random.choice(scenario_ids) if scenario_ids else None
+
+    conn.close()
+    return {
+        "focus_skill": weakest,
+        "skills": skills,
+        "blocks": {
+            "review": review_block,
+            "listening": listening_block,
+            "speaking": speaking_block,
+            "conversation_scenario_id": conversation_id,
+        },
+    }
+
+# ---- SCRIPTED CONVERSATION PRACTICE ----
+
+@app.get("/api/conversation/{scenario_id}")
+def get_conversation(scenario_id: str):
+    scenario = CONVERSATIONS.get(scenario_id)
+    if not scenario:
+        return JSONResponse({"error": "Scenario not found"}, status_code=404)
+    return {"scenario_id": scenario_id, "title": scenario["title"],
+            "hsk_level": scenario["hsk_level"], "start": scenario["start"],
+            "node": scenario["nodes"][scenario["start"]]}
+
+class ConversationRespond(BaseModel):
+    node_id: str
+    choice_id: str
+
+@app.post("/api/conversation/{scenario_id}/respond")
+def respond_conversation(scenario_id: str, data: ConversationRespond):
+    scenario = CONVERSATIONS.get(scenario_id)
+    if not scenario:
+        return JSONResponse({"error": "Scenario not found"}, status_code=404)
+    node = scenario["nodes"].get(data.node_id)
+    if not node:
+        return JSONResponse({"error": "Node not found"}, status_code=404)
+    choice = next((c for c in node["choices"] if c["id"] == data.choice_id), None)
+    if not choice:
+        return JSONResponse({"error": "Choice not found"}, status_code=400)
+    next_id = choice["next"]
+    next_node = scenario["nodes"][next_id]
+    is_end = len(next_node["choices"]) == 0
+    if is_end:
+        conn = get_db()
+        gamify.touch_streak(conn)
+        gamify.award_xp(conn, 20, 'conversation_complete')
+        newly_earned = gamify.check_badges(conn)
+        conn.commit()
+        conn.close()
+    else:
+        newly_earned = []
+    return {"node_id": next_id, "node": next_node, "is_end": is_end,
+            "newly_earned_badges": newly_earned}
 
 @app.get("/")
 def index():
