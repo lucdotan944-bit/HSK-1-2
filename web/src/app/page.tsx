@@ -24,9 +24,14 @@ export default async function HomePage() {
             <p className="font-display text-lg font-bold">Chưa biết bắt đầu từ đâu?</p>
             <p className="text-sm text-ink-soft">Làm bài test xếp trình độ 5 phút để hệ thống gợi ý điểm bắt đầu phù hợp.</p>
           </div>
-          <Link href="/placement">
-            <Button>Làm test ngay</Button>
-          </Link>
+          <div className="flex shrink-0 gap-2">
+            <Link href="/mic-check?next=/placement">
+              <Button variant="ghost">🎤 Kiểm tra mic</Button>
+            </Link>
+            <Link href="/placement">
+              <Button>Làm test ngay</Button>
+            </Link>
+          </div>
         </Card>
       )}
 
@@ -49,9 +54,14 @@ export default async function HomePage() {
             <p className="text-sm text-ink-soft">Ôn từ · nghe · nói · hội thoại — cá nhân hoá theo điểm yếu của bạn.</p>
           </div>
         </div>
-        <Link href="/daily">
-          <Button variant="secondary">Bắt đầu</Button>
-        </Link>
+        <div className="flex shrink-0 gap-2">
+          <Link href="/mic-check?next=/daily">
+            <Button variant="ghost">🎤</Button>
+          </Link>
+          <Link href="/daily">
+            <Button variant="secondary">Bắt đầu</Button>
+          </Link>
+        </div>
       </Card>
 
       <section>

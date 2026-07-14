@@ -67,7 +67,12 @@ export default function PlacementPage() {
         <p className="text-ink-soft">
           15 câu, khoảng 5 phút. Chọn nghĩa đúng cho mỗi từ — hệ thống sẽ gợi ý điểm bắt đầu HSK1 hoặc HSK2 phù hợp.
         </p>
-        <Button onClick={start}>Bắt đầu</Button>
+        <div className="flex justify-center gap-2">
+          <Link href="/mic-check?next=/placement">
+            <Button variant="ghost">🎤 Kiểm tra mic trước</Button>
+          </Link>
+          <Button onClick={start}>Bắt đầu</Button>
+        </div>
       </div>
     );
   }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { getSpeechRecognition, scorePronunciation } from "@/lib/speech";
+import { getSpeechRecognition, scorePronunciation, describeSpeechError, listenOnce, SpeechRecognitionError } from "@/lib/speech";
 import { api } from "@/lib/api";
 
 const ICONS: Record<string, string> = { ok: "✅", warn: "⚠️", fail: "❌" };
@@ -17,27 +17,20 @@ export default function PronunciationButton({
   const [result, setResult] = useState<{ score: string; text: string } | null>(null);
   const supported = typeof window !== "undefined" && !!getSpeechRecognition();
 
-  function start() {
-    const Rec = getSpeechRecognition();
-    if (!Rec) return;
-    const rec = new Rec();
-    rec.lang = "zh-CN";
-    rec.interimResults = false;
-    rec.maxAlternatives = 1;
+  async function start() {
     setListening(true);
     setResult(null);
-
-    rec.onresult = (e) => {
-      const recognized = e.results[0][0].transcript;
+    try {
+      const recognized = await listenOnce("zh-CN");
       const score = scorePronunciation(targetText, recognized);
       setResult({ score, text: recognized });
       api.logPronunciation({ word_id: wordId, target_text: targetText, recognized_text: recognized, score }).catch(() => {});
-    };
-    rec.onerror = (e) => {
-      setResult({ score: "warn", text: e.error === "no-speech" ? "Không nghe thấy gì, thử lại" : "Lỗi micro" });
-    };
-    rec.onend = () => setListening(false);
-    rec.start();
+    } catch (e) {
+      const code = e instanceof SpeechRecognitionError ? e.code : "unknown";
+      setResult({ score: "warn", text: describeSpeechError(code) });
+    } finally {
+      setListening(false);
+    }
   }
 
   if (!supported) return null;
