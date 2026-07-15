@@ -68,7 +68,7 @@ export default async function HomePage() {
         </div>
       </Card>
 
-      <HomeThemesSection initialThemes={themes.themes} byLevel={stats.by_level} />
+      <HomeThemesSection initialThemes={themes.themes} />
     </div>
   );
 }

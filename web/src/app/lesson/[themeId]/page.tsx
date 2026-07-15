@@ -7,12 +7,14 @@ import { Card, Button } from "@/components/ui";
 import PronunciationButton from "@/components/PronunciationButton";
 import { useBadgeToast } from "@/components/BadgeToast";
 import { speak } from "@/lib/speech";
+import { usePreferredLevel } from "@/lib/level";
 
 type Stage = "loading" | "words" | "quiz" | "done";
 
 export default function LessonPage({ params }: { params: Promise<{ themeId: string }> }) {
   const { themeId } = usePromise(params);
   const { announce, toastNode } = useBadgeToast();
+  const [level] = usePreferredLevel(1);
 
   const [themeName, setThemeName] = useState("");
   const [stage, setStage] = useState<Stage>("loading");
@@ -28,12 +30,20 @@ export default function LessonPage({ params }: { params: Promise<{ themeId: stri
   const [related, setRelated] = useState<DialogueSummary[]>([]);
 
   useEffect(() => {
-    api.theme(themeId).then((data) => {
+    let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset to loading when switching theme/level
+    setStage("loading");
+    api.theme(themeId, level).then((data) => {
+      if (!active) return;
       setThemeName(data.theme.name);
       setWords(data.words);
+      setWordIndex(0);
       setStage("words");
     });
-  }, [themeId]);
+    return () => {
+      active = false;
+    };
+  }, [themeId, level]);
 
   useEffect(() => {
     if (stage === "words" && words.length && wordIndex < words.length) {
@@ -49,7 +59,7 @@ export default function LessonPage({ params }: { params: Promise<{ themeId: stri
   async function startQuiz() {
     setStage("quiz");
     const count = Math.min(5, words.length);
-    const data = await api.quizChoices(2, { themeId, count });
+    const data = await api.quizChoices(level, { themeId, count });
     if (!data.questions.length) return finishLesson(null);
     setQuiz(data.questions);
     setQuizIndex(0);
@@ -104,7 +114,7 @@ export default function LessonPage({ params }: { params: Promise<{ themeId: stri
         {toastNode}
         <div className="flex items-center justify-between">
           <Link href="/" className="text-sm text-ink-soft">
-            ← {themeName}
+            ← {themeName} · HSK {level}
           </Link>
           <span className="font-data text-sm text-ink-soft">
             {wordIndex + 1}/{words.length}

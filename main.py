@@ -12,7 +12,7 @@ from database import get_db, init_db
 from sm2 import sm2
 import gamify
 import tts
-from seed_data import get_words, get_hsk1, get_hsk2, get_sentence, get_sino_viet, get_context_note, get_dialogues, THEMES, get_theme_words, BADGES
+from seed_data import get_words, get_hsk1, get_hsk2, get_sentence, get_sino_viet, get_context_note, get_dialogues, THEMES, get_theme_words, auto_categorize_theme_words, BADGES
 from hsk_mapping import HSK_MAPPING
 from conversations import CONVERSATIONS
 
@@ -79,43 +79,47 @@ def seed_words():
         print(f"Seeded {len(new_words)} new words ({len(words)} total in vocab source)")
 
 def seed_themes():
+    """Idempotent + incremental like seed_words(): always tops up new theme
+    metadata and hand-curated word links (INSERT OR IGNORE / existence
+    check), then runs auto_categorize_theme_words() to keyword-tag HSK 3-9
+    words that have no hand-curated list. Safe to re-run every startup."""
     conn = get_db()
-    existing = conn.execute("SELECT COUNT(*) FROM themes").fetchone()[0]
-    if existing > 0:
-        conn.close()
-        return
-    # Seed themes
     for tid, t in THEMES.items():
         conn.execute(
             "INSERT OR IGNORE INTO themes (id, name, icon, description) VALUES (?, ?, ?, ?)",
             (tid, t["name"], t["icon"], t["desc"])
         )
-        # Link words
         for i, w_simplified in enumerate(t["words"]):
             row = conn.execute(
                 "SELECT id FROM words WHERE simplified=?", (w_simplified,)
             ).fetchone()
             if row:
-                conn.execute(
-                    "INSERT OR IGNORE INTO theme_words (theme_id, word_id, sort_order) VALUES (?, ?, ?)",
-                    (tid, row["id"], i)
-                )
+                already = conn.execute(
+                    "SELECT 1 FROM theme_words WHERE theme_id=? AND word_id=?", (tid, row["id"])
+                ).fetchone()
+                if not already:
+                    conn.execute(
+                        "INSERT INTO theme_words (theme_id, word_id, sort_order) VALUES (?, ?, ?)",
+                        (tid, row["id"], i)
+                    )
     conn.commit()
+    auto_categorize_theme_words(conn)
     conn.close()
     print(f"Seeded {len(THEMES)} themes")
 
 def seed_dialogues():
+    """Idempotent + incremental like seed_words()/seed_themes(): only inserts
+    dialogues not already present, so adding new ones (e.g. HSK1-2 -> HSK1-9)
+    tops up an existing DB instead of requiring a wipe."""
     conn = get_db()
-    existing = conn.execute("SELECT COUNT(*) FROM dialogues").fetchone()[0]
-    if existing > 0:
-        conn.close()
-        return
-
     import re
+    existing_ids = {r["id"] for r in conn.execute("SELECT id FROM dialogues").fetchall()}
     dialogues = get_dialogues()
-    for did, d in dialogues.items():
+    new_ids = [did for did in dialogues if did not in existing_ids]
+    for did in new_ids:
+        d = dialogues[did]
         conn.execute(
-            "INSERT OR IGNORE INTO dialogues (id, title, context, hsk_level) VALUES (?, ?, ?, ?)",
+            "INSERT INTO dialogues (id, title, context, hsk_level) VALUES (?, ?, ?, ?)",
             (did, d["title"], d["context"], d.get("hsk_level", 1))
         )
         for i, line in enumerate(d["lines"]):
@@ -134,7 +138,8 @@ def seed_dialogues():
                     )
     conn.commit()
     conn.close()
-    print(f"Seeded {len(dialogues)} dialogues")
+    if new_ids:
+        print(f"Seeded {len(new_ids)} new dialogues ({len(dialogues)} total)")
 
 # ---- API Routes ----
 
@@ -769,9 +774,13 @@ def get_hsk_mapping():
 # ---- DAILY 5-MINUTE SESSION ----
 
 @app.get("/api/daily-session")
-def get_daily_session():
+def get_daily_session(level: int = None):
     """Lắp ráp phiên học 5 phút/ngày: ôn từ (SM-2), nghe, nói, hội thoại ngắn.
-    Ưu tiên nội dung liên quan tới kỹ năng yếu nhất, nhưng luôn đủ 4 khối."""
+    Ưu tiên nội dung liên quan tới kỹ năng yếu nhất, nhưng luôn đủ 4 khối.
+    `level`: cấp HSK người dùng đang chọn (tuỳ chọn) — giới hạn khối nghe/nói/
+    hội thoại về <= cấp đó, để người mới không bị rơi vào từ/hội thoại quá
+    khó. Khối ôn tập (review) vẫn không lọc theo level vì phản ánh đúng
+    lịch sử SM-2 thực tế của người học, không phải cấp đang duyệt."""
     conn = get_db()
     skills, weakest, _ = _compute_skill_breakdown(conn)
 
@@ -785,17 +794,22 @@ def get_daily_session():
 
     listen_row = conn.execute("""
         SELECT dl.dialogue_id, dl.simplified, dl.pinyin, dl.vietnamese
-        FROM dialogue_lines dl ORDER BY RANDOM() LIMIT 1
-    """).fetchone()
+        FROM dialogue_lines dl JOIN dialogues d ON dl.dialogue_id = d.id
+        WHERE (? IS NULL OR d.hsk_level <= ?)
+        ORDER BY RANDOM() LIMIT 1
+    """, (level, level)).fetchone()
     listening_block = dict(listen_row) if listen_row else None
 
     speak_row = conn.execute("""
         SELECT id, simplified, pinyin, meanings FROM words
+        WHERE (? IS NULL OR hsk_level <= ?)
         ORDER BY RANDOM() LIMIT 1
-    """).fetchone()
+    """, (level, level)).fetchone()
     speaking_block = dict(speak_row) if speak_row else None
 
-    scenario_ids = list(CONVERSATIONS.keys())
+    scenario_ids = [
+        sid for sid, s in CONVERSATIONS.items() if level is None or s["hsk_level"] <= level
+    ] or list(CONVERSATIONS.keys())
     import random
     conversation_id = random.choice(scenario_ids) if scenario_ids else None
 

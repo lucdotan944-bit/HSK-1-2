@@ -171,4 +171,33 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_dialogue_lines ON dialogue_lines(dialogue_id, sort_order);
     """)
     conn.commit()
+
+    # user_words had no unique constraint on word_id, so seed_words()'s
+    # "INSERT OR IGNORE ... VALUES (word_id)" never actually had anything to
+    # conflict with — it silently inserted a fresh duplicate SM-2 row per
+    # word on every server restart. Clean up any dupes accumulated before
+    # this fix, then add the index so it can't recur (safe: submit_review
+    # always UPDATEs by word_id, touching every dupe together, so they hold
+    # identical values — keeping the one with the most progress loses nothing).
+    _dedupe_user_words(conn)
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_user_words_word_id ON user_words(word_id)")
+    conn.commit()
     conn.close()
+
+
+def _dedupe_user_words(conn):
+    dupes = conn.execute(
+        "SELECT word_id FROM user_words GROUP BY word_id HAVING COUNT(*) > 1"
+    ).fetchall()
+    removed = 0
+    for row in dupes:
+        rows = conn.execute(
+            "SELECT id FROM user_words WHERE word_id=? ORDER BY repetitions DESC, id ASC",
+            (row["word_id"],)
+        ).fetchall()
+        drop_ids = [r["id"] for r in rows[1:]]
+        conn.executemany("DELETE FROM user_words WHERE id=?", [(i,) for i in drop_ids])
+        removed += len(drop_ids)
+    if removed:
+        conn.commit()
+        print(f"Deduped {removed} duplicate user_words rows")

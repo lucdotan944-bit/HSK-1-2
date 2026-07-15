@@ -780,6 +780,103 @@ DIALOGUES = {
             ("A", "好的，谢谢医生！", "Hǎo de, xièxie yīshēng!", "Vâng, cảm ơn bác sĩ!"),
         ]
     },
+    # HSK 3-9: mỗi cấp 1 hội thoại, chủ đề/độ khó tăng dần theo cấp — trước
+    # đây "Hội thoại" chỉ có nội dung HSK 1-2 (9 bài ở trên).
+    "watch_movie": {
+        "title": "Hẹn đi xem phim",
+        "context": "Rủ bạn đi xem phim cuối tuần.",
+        "hsk_level": 3,
+        "lines": [
+            ("A", "你好，周末你有时间吗？我们一起去看电影吧。", "Nǐ hǎo, zhōumò nǐ yǒu shíjiān ma? Wǒmen yìqǐ qù kàn diànyǐng ba.", "Chào bạn, cuối tuần bạn có rảnh không? Chúng ta cùng đi xem phim nhé."),
+            ("B", "好啊！你想看什么电影？", "Hǎo a! Nǐ xiǎng kàn shénme diànyǐng?", "Được đó! Bạn muốn xem phim gì?"),
+            ("A", "我觉得那部新电影很好看，很多人都说不错。", "Wǒ juéde nà bù xīn diànyǐng hěn hǎokàn, hěn duō rén dōu shuō búcuò.", "Tôi thấy bộ phim mới đó khá hay, nhiều người nói không tệ."),
+            ("B", "好，那我们几点见面？", "Hǎo, nà wǒmen jǐ diǎn jiànmiàn?", "Được, vậy mấy giờ chúng ta gặp nhau?"),
+            ("A", "下午两点，在电影院门口怎么样？", "Xiàwǔ liǎng diǎn, zài diànyǐngyuàn ménkǒu zěnmeyàng?", "2 giờ chiều, ở cửa rạp chiếu phim được không?"),
+            ("B", "没问题。我坐地铁过去，大概二十分钟。", "Méi wèntí. Wǒ zuò dìtiě guòqù, dàgài èrshí fēnzhōng.", "Không vấn đề gì. Tôi đi tàu điện ngầm, khoảng 20 phút."),
+            ("A", "好，那我们两点在门口见！", "Hǎo, nà wǒmen liǎng diǎn zài ménkǒu jiàn!", "Được, vậy 2 giờ gặp nhau ở cửa nhé!"),
+        ]
+    },
+    "exercise_habit": {
+        "title": "Thói quen tập thể dục",
+        "context": "Trò chuyện về việc rèn luyện sức khỏe hằng ngày.",
+        "hsk_level": 4,
+        "lines": [
+            ("A", "你平时怎么锻炼身体？", "Nǐ píngshí zěnme duànliàn shēntǐ?", "Bình thường bạn tập thể dục thế nào?"),
+            ("B", "我每天早上跑步，大概三十分钟。", "Wǒ měitiān zǎoshang pǎobù, dàgài sānshí fēnzhōng.", "Mỗi sáng tôi chạy bộ khoảng 30 phút."),
+            ("A", "真了不起！我一直坚持不下来。", "Zhēn liǎobuqǐ! Wǒ yìzhí jiānchí bú xiàlái.", "Giỏi thật! Tôi cứ không kiên trì được."),
+            ("B", "其实一开始也很难，但是习惯了就好了。", "Qíshí yì kāishǐ yě hěn nán, dànshì xíguàn le jiù hǎo le.", "Thực ra lúc đầu cũng khó, nhưng quen rồi thì ổn."),
+            ("A", "除了跑步，你还做别的运动吗？", "Chúle pǎobù, nǐ hái zuò bié de yùndòng ma?", "Ngoài chạy bộ, bạn còn tập môn gì khác không?"),
+            ("B", "周末我常常打篮球，或者去游泳。", "Zhōumò wǒ chángcháng dǎ lánqiú, huòzhě qù yóuyǒng.", "Cuối tuần tôi hay chơi bóng rổ, hoặc đi bơi."),
+            ("A", "听起来很健康。我也应该开始运动了。", "Tīng qǐlái hěn jiànkāng. Wǒ yě yīnggāi kāishǐ yùndòng le.", "Nghe có vẻ khoẻ mạnh đấy. Tôi cũng nên bắt đầu tập thể dục thôi."),
+        ]
+    },
+    "job_interview": {
+        "title": "Phỏng vấn xin việc",
+        "context": "Trả lời phỏng vấn xin việc tại một công ty.",
+        "hsk_level": 5,
+        "lines": [
+            ("A", "你好，请介绍一下你自己。", "Nǐ hǎo, qǐng jièshào yíxià nǐ zìjǐ.", "Chào bạn, hãy giới thiệu một chút về bản thân."),
+            ("B", "您好，我叫王芳，毕业于北京大学，学的是市场营销专业。", "Nín hǎo, wǒ jiào Wáng Fāng, bìyè yú Běijīng Dàxué, xué de shì shìchǎng yíngxiāo zhuānyè.", "Chào ông/bà, tôi tên Vương Phương, tốt nghiệp Đại học Bắc Kinh, chuyên ngành marketing."),
+            ("A", "你为什么想应聘我们公司这个职位？", "Nǐ wèishénme xiǎng yìngpìn wǒmen gōngsī zhège zhíwèi?", "Vì sao bạn muốn ứng tuyển vị trí này ở công ty chúng tôi?"),
+            ("B", "我对贵公司的产品很感兴趣，也相信自己的能力能胜任这份工作。", "Wǒ duì guì gōngsī de chǎnpǐn hěn gǎn xìngqù, yě xiāngxìn zìjǐ de nénglì néng shèngrèn zhè fèn gōngzuò.", "Tôi rất quan tâm đến sản phẩm của quý công ty, và tin rằng năng lực của mình có thể đảm nhận công việc này."),
+            ("A", "你有相关的工作经验吗？", "Nǐ yǒu xiāngguān de gōngzuò jīngyàn ma?", "Bạn có kinh nghiệm làm việc liên quan không?"),
+            ("B", "有，我实习过一年，负责过市场推广和数据分析。", "Yǒu, wǒ shíxí guò yì nián, fùzé guò shìchǎng tuīguǎng hé shùjù fēnxī.", "Có, tôi từng thực tập một năm, phụ trách quảng bá thị trường và phân tích dữ liệu."),
+            ("A", "好的，我们会尽快通知你结果。", "Hǎo de, wǒmen huì jǐnkuài tōngzhī nǐ jiéguǒ.", "Được, chúng tôi sẽ sớm thông báo kết quả cho bạn."),
+        ]
+    },
+    "social_media_debate": {
+        "title": "Tranh luận về mạng xã hội",
+        "context": "Thảo luận ảnh hưởng hai mặt của mạng xã hội với giới trẻ.",
+        "hsk_level": 6,
+        "lines": [
+            ("A", "你觉得社交媒体对年轻人的影响是好是坏？", "Nǐ juéde shèjiāo méitǐ duì niánqīngrén de yǐngxiǎng shì hǎo shì huài?", "Bạn nghĩ mạng xã hội ảnh hưởng đến giới trẻ là tốt hay xấu?"),
+            ("B", "这很难一概而论。它既能拉近人与人的距离，也可能让人更孤独。", "Zhè hěn nán yígài ér lùn. Tā jì néng lājìn rén yǔ rén de jùlí, yě kěnéng ràng rén gèng gūdú.", "Cái này khó nói chung được. Nó vừa có thể kéo gần khoảng cách giữa người với người, cũng có thể khiến người ta cô đơn hơn."),
+            ("A", "我同意。不过我担心大家越来越依赖手机，忽略了现实生活。", "Wǒ tóngyì. Búguò wǒ dānxīn dàjiā yuèláiyuè yīlài shǒujī, hūlüè le xiànshí shēnghuó.", "Tôi đồng ý. Nhưng tôi lo mọi người ngày càng phụ thuộc điện thoại, bỏ qua cuộc sống thực."),
+            ("B", "关键还是要看怎么使用吧，凡事都有两面性。", "Guānjiàn háishi yào kàn zěnme shǐyòng ba, fánshì dōu yǒu liǎngmiànxìng.", "Then chốt vẫn là xem sử dụng thế nào thôi, cái gì cũng có hai mặt."),
+            ("A", "说得有道理。合理安排使用时间应该是解决办法之一。", "Shuō de yǒu dàolǐ. Hélǐ ānpái shǐyòng shíjiān yīnggāi shì jiějué bànfǎ zhī yī.", "Nói cũng có lý. Sắp xếp thời gian sử dụng hợp lý chắc là một trong những cách giải quyết."),
+            ("B", "对，我们不能因噎废食，完全拒绝社交媒体也不现实。", "Duì, wǒmen bùnéng yīnyēfèishí, wánquán jùjué shèjiāo méitǐ yě bù xiànshí.", "Đúng, chúng ta không thể vì nghẹn mà bỏ ăn, hoàn toàn từ chối mạng xã hội cũng không thực tế."),
+            ("A", "没错，找到平衡点才是最重要的。", "Méi cuò, zhǎodào pínghéngdiǎn cái shì zuì zhòngyào de.", "Đúng vậy, tìm được điểm cân bằng mới là quan trọng nhất."),
+        ]
+    },
+    "climate_change": {
+        "title": "Bàn về bảo vệ môi trường",
+        "context": "Thảo luận về biến đổi khí hậu và trách nhiệm mỗi bên.",
+        "hsk_level": 7,
+        "lines": [
+            ("A", "近年来极端天气频发，你怎么看待气候变化这个问题？", "Jìnnián lái jíduān tiānqì pínfā, nǐ zěnme kàndài qìhòu biànhuà zhège wèntí?", "Những năm gần đây thời tiết cực đoan xảy ra thường xuyên, bạn nhìn nhận vấn đề biến đổi khí hậu thế nào?"),
+            ("B", "我认为这不仅是环境问题，更是关系到人类未来生存的重大议题。", "Wǒ rènwéi zhè bùjǐn shì huánjìng wèntí, gèng shì guānxì dào rénlèi wèilái shēngcún de zhòngdà yìtí.", "Tôi cho rằng đây không chỉ là vấn đề môi trường, mà còn là vấn đề trọng đại liên quan đến sự sinh tồn tương lai của nhân loại."),
+            ("A", "那你觉得普通人可以从哪些方面做出改变？", "Nà nǐ juéde pǔtōng rén kěyǐ cóng nǎxiē fāngmiàn zuòchū gǎibiàn?", "Vậy bạn nghĩ người bình thường có thể thay đổi từ những phương diện nào?"),
+            ("B", "比如减少一次性用品的使用，尽量选择公共交通，从生活细节做起。", "Bǐrú jiǎnshǎo yícìxìng yòngpǐn de shǐyòng, jǐnliàng xuǎnzé gōnggòng jiāotōng, cóng shēnghuó xìjié zuò qǐ.", "Ví dụ giảm sử dụng đồ dùng một lần, cố gắng chọn giao thông công cộng, bắt đầu từ những chi tiết nhỏ trong cuộc sống."),
+            ("A", "除了个人努力，政府和企业是不是应该承担更多责任？", "Chúle gèrén nǔlì, zhèngfǔ hé qǐyè shìbùshì yīnggāi chéngdān gèng duō zérèn?", "Ngoài nỗ lực cá nhân, chính phủ và doanh nghiệp có nên gánh vác nhiều trách nhiệm hơn không?"),
+            ("B", "当然，政策的推动和企业的转型往往比个人行为更有影响力。", "Dāngrán, zhèngcè de tuīdòng hé qǐyè de zhuǎnxíng wǎngwǎng bǐ gèrén xíngwéi gèng yǒu yǐngxiǎnglì.", "Đương nhiên, việc thúc đẩy chính sách và chuyển đổi của doanh nghiệp thường có sức ảnh hưởng lớn hơn hành vi cá nhân."),
+        ]
+    },
+    "ai_debate": {
+        "title": "Tranh luận về trí tuệ nhân tạo",
+        "context": "Bàn về tác động của AI đến việc làm và năng lực cốt lõi của con người.",
+        "hsk_level": 8,
+        "lines": [
+            ("A", "人工智能的迅猛发展让很多人担忧会取代人类的工作，你怎么看？", "Réngōng zhìnéng de xùnměng fāzhǎn ràng hěnduō rén dānyōu huì qǔdài rénlèi de gōngzuò, nǐ zěnme kàn?", "Sự phát triển vũ bão của trí tuệ nhân tạo khiến nhiều người lo ngại sẽ thay thế công việc của con người, bạn nghĩ sao?"),
+            ("B", "这种担忧不无道理，但历史上每次技术革命都伴随着新职业的诞生。", "Zhè zhǒng dānyōu bùwú dàolǐ, dàn lìshǐ shàng měicì jìshù gémìng dōu bànsuízhe xīn zhíyè de dànshēng.", "Nỗi lo này không phải không có lý, nhưng trong lịch sử mỗi lần cách mạng công nghệ đều đi kèm sự ra đời của nghề nghiệp mới."),
+            ("A", "可是这一次的变革速度似乎比以往任何时候都快得多。", "Kěshì zhè yícì de biàngé sùdù sìhū bǐ yǐwǎng rènhé shíhòu dōu kuài de duō.", "Nhưng lần biến đổi này tốc độ dường như nhanh hơn bất kỳ thời điểm nào trước đây rất nhiều."),
+            ("B", "确实如此，这也正是为什么我们需要提前思考教育体系和社会保障的转型。", "Quèshí rúcǐ, zhè yě zhèngshì wèishénme wǒmen xūyào tíqián sīkǎo jiàoyù tǐxì hé shèhuì bǎozhàng de zhuǎnxíng.", "Đúng là vậy, đây cũng chính là lý do tại sao chúng ta cần suy nghĩ trước về việc chuyển đổi hệ thống giáo dục và an sinh xã hội."),
+            ("A", "那你认为人类不可取代的核心竞争力是什么？", "Nà nǐ rènwéi rénlèi bùkě qǔdài de héxīn jìngzhēnglì shì shénme?", "Vậy bạn cho rằng năng lực cạnh tranh cốt lõi không thể thay thế của con người là gì?"),
+            ("B", "我想是创造力、同理心，以及应对复杂伦理困境的判断力。", "Wǒ xiǎng shì chuàngzàolì, tónglǐxīn, yǐjí yìngduì fùzá lúnlǐ kùnjìng de pànduànlì.", "Tôi nghĩ là sức sáng tạo, sự đồng cảm, và khả năng phán đoán khi đối mặt với những tình huống đạo đức phức tạp."),
+        ]
+    },
+    "traditional_culture": {
+        "title": "Trao đổi học thuật về văn hoá truyền thống",
+        "context": "Thảo luận cách văn hoá truyền thống giữ bản sắc trong thời toàn cầu hoá.",
+        "hsk_level": 9,
+        "lines": [
+            ("A", "在全球化的浪潮下，你认为传统文化该如何保持其独特性？", "Zài quánqiúhuà de làngcháo xià, nǐ rènwéi chuántǒng wénhuà gāi rúhé bǎochí qí dútèxìng?", "Trong làn sóng toàn cầu hoá, bạn cho rằng văn hoá truyền thống nên giữ gìn tính độc đáo của mình như thế nào?"),
+            ("B", "我觉得关键在于创造性转化，而不是一味地固守成规。", "Wǒ juéde guānjiàn zàiyú chuàngzàoxìng zhuǎnhuà, ér búshì yíwèi de gùshǒu chéngguī.", "Tôi cho rằng then chốt là ở sự chuyển hoá mang tính sáng tạo, chứ không phải cứ khư khư bám giữ lề lối cũ."),
+            ("A", "能不能举一个具体的例子来说明这种转化？", "Néng bùnéng jǔ yí gè jùtǐ de lìzi lái shuōmíng zhè zhǒng zhuǎnhuà?", "Bạn có thể nêu một ví dụ cụ thể để minh hoạ cho sự chuyển hoá này không?"),
+            ("B", "比如说，传统戏曲融入现代舞台技术，既保留了精髓，又吸引了年轻观众。", "Bǐrú shuō, chuántǒng xìqǔ róngrù xiàndài wǔtái jìshù, jì bǎoliúle jīngsuǐ, yòu xīyǐnle niánqīng guānzhòng.", "Ví dụ như, hí kịch truyền thống hoà nhập vào kỹ thuật sân khấu hiện đại, vừa giữ được tinh tuý, vừa thu hút được khán giả trẻ."),
+            ("A", "这确实是个很好的思路。但会不会因此失去一些原汁原味的东西？", "Zhè quèshí shì gè hěn hǎo de sīlù. Dàn huì bú huì yīncǐ shīqù yìxiē yuánzhīyuánwèi de dōngxi?", "Đây quả thực là một hướng đi hay. Nhưng liệu có vì thế mà mất đi một số điều nguyên bản không?"),
+            ("B", "这是个值得深思的问题，任何变革都需要在传承与创新之间找到平衡。", "Zhè shì gè zhídé shēnsī de wèntí, rènhé biàngé dōu xūyào zài chuánchéng yǔ chuàngxīn zhījiān zhǎodào pínghéng.", "Đây là vấn đề đáng suy nghĩ sâu sắc, bất kỳ sự biến đổi nào cũng cần tìm được sự cân bằng giữa kế thừa và đổi mới."),
+        ]
+    },
 }
 
 def get_dialogues():
@@ -827,7 +924,158 @@ THEMES = {
         "name": "Màu sắc", "icon": "🎨", "desc": "Tên các màu sắc cơ bản",
         "words": ["红色", "白色", "黑色", "蓝色", "绿色", "黄色", "颜色"]
     },
+    # HSK 3-9 mở rộng nhiều vào từ vựng trừu tượng/chuyên ngành mà 10 chủ đề
+    # gốc (vốn thiên về đời sống cơ bản HSK1-2) không phủ tới — các chủ đề
+    # dưới đây không có danh sách tay, được lấp đầy hoàn toàn bằng
+    # auto_categorize_theme_words() theo từ khoá trong THEME_KEYWORDS.
+    "work": {
+        "name": "Công việc", "icon": "💼", "desc": "Từ vựng công sở, nghề nghiệp, kinh doanh",
+        "words": []
+    },
+    "emotions": {
+        "name": "Cảm xúc & tính cách", "icon": "😊", "desc": "Diễn tả cảm xúc, tâm trạng và tính cách",
+        "words": []
+    },
+    "health": {
+        "name": "Sức khỏe", "icon": "🏥", "desc": "Cơ thể, bệnh tật, khám chữa bệnh",
+        "words": []
+    },
+    "society": {
+        "name": "Xã hội & thời sự", "icon": "📰", "desc": "Chính trị, pháp luật, kinh tế, tin tức",
+        "words": []
+    },
+    "nature": {
+        "name": "Thiên nhiên & môi trường", "icon": "🌳", "desc": "Cây cối, thời tiết, động vật, môi trường",
+        "words": []
+    },
+    "tech": {
+        "name": "Công nghệ & khoa học", "icon": "💻", "desc": "Máy tính, internet, khoa học kỹ thuật",
+        "words": []
+    },
 }
+
+# Từ khoá tiếng Việt (khớp trên trường `meanings`) dùng để tự động gán chủ đề
+# cho toàn bộ từ vựng HSK 1-9 — bù cho việc 10 chủ đề gốc chỉ được biên soạn
+# tay cho ~118 từ HSK1/2. Chạy bởi auto_categorize_theme_words(), idempotent.
+THEME_KEYWORDS = {
+    "greetings": ["chào", "cảm ơn", "xin lỗi", "tạm biệt", "làm ơn", "xin phép", "hân hạnh", "kính chào"],
+    "family": ["bố", "cha", "mẹ", "con trai", "con gái", "anh", "chị", "em", "ông", "bà", "cháu", "vợ", "chồng",
+               "gia đình", "họ hàng", "cô", "bác", "dì", "cậu", "cô chú", "người thân", "gia tộc"],
+    "numbers": ["một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín", "mười", "trăm", "nghìn", "vạn",
+                "triệu", "số lượng", "đếm", "phần trăm", "tỷ lệ", "con số", "số thứ tự"],
+    "food": ["ăn", "uống", "món ăn", "cơm", "canh", "thịt", "cá", "rau", "trái cây", "hoa quả", "nước", "trà",
+             "cà phê", "sữa", "bánh", "đói", "khát", "hương vị", "vị giác", "ngon", "nấu", "nhà bếp",
+             "thực phẩm", "dinh dưỡng", "gia vị", "nhà hàng", "quán ăn", "đồ uống", "rượu", "bữa"],
+    "time": ["hôm nay", "ngày mai", "hôm qua", "buổi sáng", "buổi trưa", "buổi chiều", "buổi tối", "ban đêm",
+             "giờ", "phút", "giây", "tuần", "tháng", "thời gian", "lịch", "sớm", "muộn", "hiện tại", "quá khứ",
+             "tương lai", "thời điểm", "thời kỳ", "kỳ hạn", "thời hạn", "lúc"],
+    "study": ["học", "đọc", "viết", "trường", "lớp học", "giáo viên", "học sinh", "sinh viên", "sách", "bút",
+              "bài tập", "thi", "kiểm tra", "kiến thức", "nghiên cứu", "giáo dục", "đại học", "chữ hán",
+              "tiếng trung", "môn học", "giáo trình", "bằng cấp", "học vị", "luận văn", "giảng dạy"],
+    "shopping": ["mua", "bán", "tiền", "giá cả", "đắt", "rẻ", "cửa hàng", "siêu thị", "chợ", "hàng hóa",
+                 "thanh toán", "giảm giá", "khuyến mãi", "hóa đơn", "mặc cả", "sản phẩm", "kinh doanh",
+                 "thương mại", "tiêu dùng", "khách hàng"],
+    "actions": ["đi", "đến", "chạy", "nhảy", "đứng", "ngồi", "nằm", "mở", "đóng", "cầm", "mang", "đưa", "lấy",
+                "đặt", "ném", "kéo", "đẩy", "leo", "bò", "bay"],
+    "travel": ["du lịch", "đi chơi", "máy bay", "sân bay", "tàu hỏa", "xe lửa", "khách sạn", "hộ chiếu", "vé",
+               "hành lý", "bãi biển", "phong cảnh", "tham quan", "chuyến đi", "nghỉ mát", "visa", "hướng dẫn viên"],
+    "colors": ["màu", "đỏ", "trắng", "đen", "xanh", "vàng", "tím", "hồng", "nâu", "xám", "cam"],
+    "work": ["công việc", "làm việc", "công ty", "nhân viên", "giám đốc", "sếp", "đồng nghiệp", "lương",
+             "nghề nghiệp", "chức vụ", "hợp đồng", "cuộc họp", "dự án", "văn phòng", "nghỉ việc", "tuyển dụng",
+             "phỏng vấn", "kỹ năng", "chuyên môn", "quản lý", "nhân sự", "xí nghiệp", "doanh nghiệp", "cấp trên",
+             "cấp dưới", "báo cáo", "nghỉ phép"],
+    "emotions": ["vui", "buồn", "giận", "sợ hãi", "lo lắng", "hạnh phúc", "tức giận", "yêu thương", "ghét",
+                 "cảm động", "ngạc nhiên", "hồi hộp", "thất vọng", "hài lòng", "tự hào", "xấu hổ", "cô đơn",
+                 "tính cách", "tình cảm", "cảm xúc", "cảm giác", "tâm trạng", "kiên nhẫn", "khiêm tốn", "tự tin"],
+    "health": ["bệnh", "ốm", "đau", "sức khỏe", "bác sĩ", "bệnh viện", "thuốc", "khám bệnh", "chữa bệnh",
+               "cơ thể", "sốt", "ho", "cảm cúm", "y tá", "phẫu thuật", "dinh dưỡng", "thể dục", "tập luyện",
+               "mệt mỏi", "khỏe mạnh", "tiêm", "vắc xin", "sức khoẻ"],
+    "society": ["xã hội", "chính phủ", "pháp luật", "kinh tế", "chính trị", "tin tức", "báo chí", "sự kiện",
+                "quốc gia", "chính sách", "cộng đồng", "dân số", "quyền lợi", "an ninh", "luật pháp", "tòa án",
+                "bầu cử", "quốc hội", "công dân", "quốc tế"],
+    "nature": ["cây", "hoa", "núi", "sông", "biển", "bầu trời", "mưa", "nắng", "gió", "tuyết", "động vật",
+               "thiên nhiên", "môi trường", "sinh vật", "rừng", "khí hậu", "trái đất", "vũ trụ", "mặt trời",
+               "mặt trăng", "sinh thái", "ô nhiễm", "hồ", "đảo"],
+    "tech": ["máy tính", "điện thoại", "internet", "công nghệ", "khoa học", "kỹ thuật", "phần mềm",
+             "mạng lưới", "trên mạng", "lên mạng", "cư dân mạng", "dữ liệu", "thiết bị", "phát minh",
+             "trí tuệ nhân tạo", "robot", "kỹ sư", "hệ thống", "ứng dụng", "lập trình", "số hóa", "điện tử"],
+}
+
+# Known collisions where a single-syllable keyword (highly reusable in
+# Vietnamese) shows up inside an unrelated compound gloss — caught by manual
+# spot-checking auto_categorize_theme_words() output. "mạng" was dropped
+# entirely from THEME_KEYWORDS above (bare "mạng" hits life/fate/revolution
+# far more than network: cách mạng, tính mạng, sứ mạng, liều mạng...) in
+# favor of multi-word phrases; "hoa" and "cây" stay bare (mostly accurate)
+# with their specific bad hits excluded here. Extend as more surface.
+THEME_KEYWORD_EXCLUDE = {
+    ("nature", "hoa"): [
+        "chữ hoa", "trung hoa", "hoa kiều", "người hoa", "tiếng hoa",  # Hoa = Chinese, not flower
+        "sa hoa", "xa hoa", "ba hoa", "tài hoa", "phồn hoa", "hoa lệ", "tinh hoa",  # idioms
+        "hoa tai",  # earring
+    ],
+    ("nature", "cây"): ["cây số"],  # km marker, not a tree
+    ("time", "lịch"): ["lịch sử", "lịch sự", "lịch lãm", "lý lịch"],
+    ("food", "nước"): [
+        "nước ngoài", "nhà nước", "đất nước", "cả nước", "trong nước", "về nước", "yêu nước", "toàn quốc",
+        "việc nước", "ngoại quốc", "quốc gia",
+    ],  # nước = country/state here, not water
+    ("shopping", "tiền"): [
+        "tiền bối", "tiền lệ", "tiền nhiệm", "tiền tuyến", "tiền đề", "tiền sử", "tiền phong",
+    ],  # tiền = "pre-/former" here, not money
+    ("family", "cô"): ["cô ấy", "của cô", "cô đơn", "cô độc", "thầy cô", "cô lập", "cô gái"],
+    ("family", "bác"): ["bác sĩ", "bác bỏ", "đại bác", "bác học"],
+}
+
+
+def _keyword_in_meanings(meanings_lower: str, keyword: str, theme_id: str) -> bool:
+    """Multi-word keywords (contain a space) match as a substring; single-word
+    keywords must match a whole gloss token, to avoid accidental substring
+    hits inside unrelated Vietnamese words. THEME_KEYWORD_EXCLUDE vetoes
+    specific known-bad (theme, keyword) collisions regardless of match type."""
+    exclusions = THEME_KEYWORD_EXCLUDE.get((theme_id, keyword))
+    if exclusions and any(bad in meanings_lower for bad in exclusions):
+        return False
+    if " " in keyword:
+        return keyword in meanings_lower
+    return any(keyword in gloss.strip().split() for gloss in meanings_lower.split(","))
+
+
+def auto_categorize_theme_words(conn):
+    """Rule-based topic tagging for every word in the DB (mainly HSK 3-9,
+    which has no hand-curated theme list): matches each word's Vietnamese
+    `meanings` against THEME_KEYWORDS and links matches into theme_words.
+    Idempotent — skips (theme, word) pairs already linked, so it's safe to
+    call on every startup as the vocab set grows."""
+    existing_pairs = {
+        (r["theme_id"], r["word_id"])
+        for r in conn.execute("SELECT theme_id, word_id FROM theme_words").fetchall()
+    }
+    next_sort = {}
+    for r in conn.execute("SELECT theme_id, MAX(sort_order) m FROM theme_words GROUP BY theme_id").fetchall():
+        next_sort[r["theme_id"]] = (r["m"] or 0) + 1
+
+    words = conn.execute("SELECT id, meanings FROM words").fetchall()
+    inserted = 0
+    for theme_id, keywords in THEME_KEYWORDS.items():
+        for w in words:
+            key = (theme_id, w["id"])
+            if key in existing_pairs:
+                continue
+            meanings_lower = w["meanings"].lower()
+            if any(_keyword_in_meanings(meanings_lower, kw, theme_id) for kw in keywords):
+                order = next_sort.get(theme_id, 0)
+                conn.execute(
+                    "INSERT INTO theme_words (theme_id, word_id, sort_order) VALUES (?, ?, ?)",
+                    (theme_id, w["id"], order)
+                )
+                next_sort[theme_id] = order + 1
+                existing_pairs.add(key)
+                inserted += 1
+    conn.commit()
+    if inserted:
+        print(f"Auto-categorized {inserted} theme_word links")
+
 
 def get_theme_words(theme_id):
     """Get list of word simplified characters for a theme"""

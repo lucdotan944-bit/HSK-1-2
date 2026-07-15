@@ -238,7 +238,7 @@ export const api = {
   skillBreakdown: () => jsonFetch<SkillBreakdown>("/api/skills/breakdown"),
   hskMapping: () =>
     jsonFetch<{ mapping: { old: number; new_range: [number, number]; desc: string }[] }>("/api/hsk-mapping"),
-  dailySession: () => jsonFetch<DailySession>("/api/daily-session"),
+  dailySession: (level?: number) => jsonFetch<DailySession>(`/api/daily-session${level ? `?level=${level}` : ""}`),
   conversation: (scenarioId: string) => jsonFetch<ConversationStart>(`/api/conversation/${scenarioId}`),
   conversationRespond: (scenarioId: string, nodeId: string, choiceId: string) =>
     jsonFetch<{ node_id: string; node: ConversationNode; is_end: boolean; newly_earned_badges: string[] }>(

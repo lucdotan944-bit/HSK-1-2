@@ -7,6 +7,7 @@ import { Card, Button, SectionTitle } from "@/components/ui";
 import PronunciationButton from "@/components/PronunciationButton";
 import { useBadgeToast } from "@/components/BadgeToast";
 import { speak } from "@/lib/speech";
+import { usePreferredLevel } from "@/lib/level";
 
 const GRADES = [
   { q: 0, icon: "😵" },
@@ -16,6 +17,7 @@ const GRADES = [
 
 export default function DailySessionPage() {
   const { announce, toastNode } = useBadgeToast();
+  const [level] = usePreferredLevel(1);
   const [session, setSession] = useState<DailySession | null>(null);
   const [reviewIndex, setReviewIndex] = useState(0);
   const [reviewDone, setReviewDone] = useState(false);
@@ -23,8 +25,14 @@ export default function DailySessionPage() {
   const [listeningDone, setListeningDone] = useState(false);
 
   useEffect(() => {
-    api.dailySession().then(setSession);
-  }, []);
+    let active = true;
+    api.dailySession(level).then((d) => {
+      if (active) setSession(d);
+    });
+    return () => {
+      active = false;
+    };
+  }, [level]);
 
   if (!session) return <p className="text-ink-soft">Đang soạn phiên học cho bạn...</p>;
 
