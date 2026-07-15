@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #f6f1e7;
+  --paper-raised: #fffcf5;
+  --ink: #16201c;
+  --ink-soft: #4b5750;
+  --jade: #3f6659;
+  --jade-soft: #dce8e2;
+  --seal: #b23a2e;
+  --seal-soft: #f3ddd8;
+  --brass: #b98b3e;
+  --brass-soft: #f2e6cd;
+  --line: rgba(22, 32, 28, 0.12);
+}
+
+:root[data-theme="dark"] {
+  --paper: #10140f;
+  --paper-raised: #1a2019;
+  --ink: #efe9db;
+  --ink-soft: #a9b3ac;
+  --jade: #7fae9d;
+  --jade-soft: #1e2f29;
+  --seal: #e2685a;
+  --seal-soft: #3a201d;
+  --brass: #d9ac5c;
+  --brass-soft: #362a15;
+  --line: rgba(239, 233, 219, 0.14);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #10140f;
+    --paper-raised: #1a2019;
+    --ink: #efe9db;
+    --ink-soft: #a9b3ac;
+    --jade: #7fae9d;
+    --jade-soft: #1e2f29;
+    --seal: #e2685a;
+    --seal-soft: #3a201d;
+    --brass: #d9ac5c;
+    --brass-soft: #362a15;
+    --line: rgba(239, 233, 219, 0.14);
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-raised: var(--paper-raised);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-jade: var(--jade);
+  --color-jade-soft: var(--jade-soft);
+  --color-seal: var(--seal);
+  --color-seal-soft: var(--seal-soft);
+  --color-brass: var(--brass);
+  --color-brass-soft: var(--brass-soft);
+  --color-line: var(--line);
+  --font-display: var(--font-display), "Songti SC", serif;
+  --font-body: var(--font-body), "Segoe UI", sans-serif;
+  --font-data: var(--font-data), ui-monospace, monospace;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+.font-data {
+  font-family: var(--font-data);
+}
+
+/* Seal stamp — the app's signature motif: a vermilion chop marking HSK level / badges */
+.seal-stamp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: #fff8f0;
+  background: var(--seal);
+  border-radius: 6px;
+  transform: rotate(-4deg);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.15);
+  line-height: 1;
+}
+
+@keyframes stamp-press {
+  0% {
+    transform: rotate(-4deg) scale(1.6);
+    opacity: 0;
+  }
+  60% {
+    transform: rotate(-4deg) scale(0.94);
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(-4deg) scale(1);
+    opacity: 1;
+  }
+}
+.seal-stamp-animate {
+  animation: stamp-press 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seal-stamp-animate {
+    animation: none;
+  }
+}
+
+::selection {
+  background: var(--seal-soft);
+  color: var(--ink);
+}

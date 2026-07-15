@@ -19,6 +19,7 @@
                 <div class="nav-links">
                     <a onclick="showPage('home')" class="active" data-page="home">🏠 Học</a>
                     <a onclick="showPage('review')" data-page="review">🔄 Ôn</a>
+                    <a onclick="showPage('writing')" data-page="writing">✍️ Viết</a>
                     <a onclick="showPage('words')" data-page="words">📚 Từ</a>
                     <a onclick="showPage('dialogues')" data-page="dialogues">💬 Hội thoại</a>
                     <a onclick="showPage('progress')" data-page="progress">📊 Tiến độ</a>
@@ -33,7 +34,15 @@
                     <h1>Chào mừng đến với <span class="highlight">Hán Ngữ+</span></h1>
                     <p>Chọn chủ đề để bắt đầu học</p>
                 </div>
+                <div id="placementBanner" class="placement-banner" style="display:none">
+                    <div class="placement-banner-text">
+                        <b>🎯 Bạn mới bắt đầu?</b> Làm bài test 15 câu (~5 phút) để biết nên học từ đâu.
+                    </div>
+                    <button class="btn btn-primary" onclick="startPlacementTest()">Làm test</button>
+                    <button class="btn-dismiss" onclick="dismissPlacementBanner()" title="Bỏ qua">✕</button>
+                </div>
                 <div class="stats-row" id="homeStats">
+                    <div class="stat-chip stat-chip-xp"><span class="stat-num" id="statXp">0</span> XP · 🔥 <span class="stat-num" id="statStreak">0</span></div>
                     <div class="stat-chip" onclick="showPage('review')"><span class="stat-num" id="statDue">0</span> cần ôn</div>
                     <div class="stat-chip" onclick="showPage('progress')"><span class="stat-num" id="statLearned">0</span> đã thuộc</div>
                     <div class="stat-chip"><span class="stat-num" id="statTotal">0</span> từ</div>
@@ -66,6 +75,8 @@
                         <div class="lesson-context-note" id="lsContextNote"></div>
                         <div class="lesson-actions">
                             <button class="btn-audio-lg" onclick="playLessonAudio()">🔊 Nghe</button>
+                            <button class="btn-audio-lg btn-mic" onclick="checkLessonPronunciation(this)">🎤</button>
+                            <span class="pron-result"></span>
                         </div>
                     </div>
                     <div class="lesson-nav">
@@ -74,11 +85,45 @@
                         <button class="btn btn-primary" onclick="nextLessonWord()" id="lsNextBtn">Tiếp ▶</button>
                     </div>
                 </div>
+                <!-- Mini-quiz sau khi học xong từ vựng -->
+                <div id="lessonQuiz" style="display:none">
+                    <div class="quiz-card">
+                        <div class="quiz-progress" id="quizProgress">Câu 1/5</div>
+                        <div class="quiz-char" id="quizChar">你</div>
+                        <div class="quiz-pinyin" id="quizPinyin">nǐ</div>
+                        <div class="quiz-question">Nghĩa của từ này là gì?</div>
+                        <div class="quiz-choices" id="quizChoices"></div>
+                    </div>
+                </div>
                 <div id="lessonDone" style="display:none" class="done-message">
                     <h3>🎉 Hoàn thành chủ đề!</h3>
                     <p id="lessonSummary">Bạn đã học xong tất cả từ.</p>
+                    <div id="lessonQuizScore"></div>
+                    <div id="lessonSuggestDialogue"></div>
                     <button class="btn btn-primary" onclick="showPage('review')">🔄 Ôn tập ngay</button>
                     <button class="btn btn-secondary" onclick="showPage('home')" style="margin-top:8px">🏠 Về trang chủ</button>
+                </div>
+            </section>
+
+            <!-- PLACEMENT TEST -->
+            <section id="page-placement" class="page">
+                <div class="lesson-header">
+                    <button class="btn-back" onclick="showPage('home')">←</button>
+                    <span>🎯 Test xếp trình độ</span>
+                    <span class="lesson-progress" id="placementProgress">1/15</span>
+                </div>
+                <div id="placementQuiz">
+                    <div class="quiz-card">
+                        <div class="quiz-char" id="plChar">你</div>
+                        <div class="quiz-pinyin" id="plPinyin">nǐ</div>
+                        <div class="quiz-question">Nghĩa của từ này là gì?</div>
+                        <div class="quiz-choices" id="plChoices"></div>
+                    </div>
+                </div>
+                <div id="placementDone" style="display:none" class="done-message">
+                    <h3 id="plResultTitle">🎉 Hoàn thành!</h3>
+                    <p id="plResultText"></p>
+                    <button class="btn btn-primary" onclick="showPage('home')">Bắt đầu học</button>
                 </div>
             </section>
 
@@ -105,7 +150,11 @@
                                 <div class="word-sentence-vi" id="fcSentenceVi"></div>
                                 <div class="word-context-note" id="fcContextNote"></div>
                                 <div class="word-hsk">HSK <span id="fcLevel">1</span></div>
-                                <button class="btn-audio" onclick="playReviewAudio(event)">🔊 Nghe</button>
+                                <div class="fc-audio-row">
+                                    <button class="btn-audio" onclick="playReviewAudio(event)">🔊 Nghe</button>
+                                    <button class="btn-audio btn-mic" onclick="checkReviewPronunciation(event, this)">🎤</button>
+                                    <span class="pron-result"></span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -125,6 +174,36 @@
                     <h3>🎉 Hoàn thành!</h3>
                     <p>Bạn đã ôn tập xong.</p>
                     <button class="btn btn-primary" onclick="showPage('home')">Về trang chủ</button>
+                </div>
+            </section>
+
+            <!-- WRITING PRACTICE -->
+            <section id="page-writing" class="page">
+                <div class="page-header">
+                    <h2>✍️ Luyện viết chữ Hán</h2>
+                </div>
+                <div id="writingGridView">
+                    <div class="word-tabs">
+                        <button class="tab active" onclick="switchWritingTab(1)">HSK 1</button>
+                        <button class="tab" onclick="switchWritingTab(2)">HSK 2</button>
+                    </div>
+                    <div class="writing-char-grid" id="writingCharGrid"></div>
+                </div>
+                <div id="writingPracticeView" style="display:none">
+                    <div class="lesson-header">
+                        <button class="btn-back" onclick="closeWritingPractice()">←</button>
+                        <span id="writingCharTitle">你</span>
+                        <span class="lesson-progress" id="writingStatus"></span>
+                    </div>
+                    <div class="writing-stage">
+                        <div id="hanziTarget" class="hanzi-writer-target"></div>
+                        <div class="writing-word-info" id="writingWordInfo"></div>
+                        <div class="writing-actions">
+                            <button class="btn btn-secondary" onclick="animateCharacter()">▶️ Xem cách viết</button>
+                            <button class="btn btn-primary" onclick="startWritingQuiz()">✍️ Tự viết</button>
+                        </div>
+                        <div class="writing-result" id="writingResult"></div>
+                    </div>
                 </div>
             </section>
 
@@ -175,9 +254,13 @@
                 </div>
                 <div class="progress-grid" id="progressGrid"></div>
                 <div class="progress-detail" id="progressDetail"></div>
+                <h3 class="badge-section-title">🏅 Huy hiệu</h3>
+                <div class="badge-grid" id="badgeGrid"></div>
             </section>
         </main>
+        <div id="badgeToast" class="badge-toast" style="display:none"></div>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/hanzi-writer@3/dist/hanzi-writer.min.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

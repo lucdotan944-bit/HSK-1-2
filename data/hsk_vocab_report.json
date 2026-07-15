@@ -1,0 +1,25 @@
+{
+  "total_words": 10675,
+  "per_level_count": {
+    "1": 340,
+    "2": 668,
+    "3": 936,
+    "4": 962,
+    "5": 1055,
+    "6": 1119,
+    "7": 1868,
+    "8": 1871,
+    "9": 1856
+  },
+  "stats": {
+    "hanviet_composed": 10612,
+    "hanviet_composed_fallback": 61,
+    "hanviet_composed_partial": 2,
+    "hanviet_missing": 0,
+    "meaning_ryanphung": 8535,
+    "meaning_cvdict": 2126,
+    "meaning_english_fallback": 14,
+    "skipped_curated_dup": 275,
+    "skipped_dup_in_bulk": 86
+  }
+}
