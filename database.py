@@ -1,4 +1,11 @@
-"""SQLite database for HSK app"""
+"""SQLite database for HSK app.
+
+Production (Render) has no persistent disk on the free tier, so a local
+hsk.db file gets wiped on every deploy/restart — set TURSO_DATABASE_URL +
+TURSO_AUTH_TOKEN (a free https://turso.tech database) to persist instead;
+get_db() then routes through db_compat's libsql shim. Local dev with no
+those env vars set keeps using a plain local sqlite3 file, unchanged.
+"""
 import sqlite3
 import json
 import os
@@ -6,7 +13,13 @@ from datetime import datetime, timedelta
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'hsk.db')
 
+TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL")
+TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
+
 def get_db():
+    if TURSO_DATABASE_URL:
+        import db_compat
+        return db_compat.connect(TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
