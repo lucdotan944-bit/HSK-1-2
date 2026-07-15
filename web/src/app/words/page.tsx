@@ -5,18 +5,25 @@ import { api, meaningsList, type Word } from "@/lib/api";
 import { speak } from "@/lib/speech";
 import LevelPicker from "@/components/LevelPicker";
 import { Button } from "@/components/ui";
+import { usePreferredLevel } from "@/lib/level";
 
 const PAGE_SIZE = 150;
 
 export default function WordsPage() {
-  const [level, setLevel] = useState(1);
+  const [level, setLevel] = usePreferredLevel(1);
   const [words, setWords] = useState<Word[]>([]);
   const [search, setSearch] = useState("");
   const [visible, setVisible] = useState(PAGE_SIZE);
 
   useEffect(() => {
-    api.wordsByLevel(level).then((d) => setWords(d.words));
+    let active = true;
+    api.wordsByLevel(level).then((d) => {
+      if (active) setWords(d.words);
+    });
     setVisible(PAGE_SIZE);
+    return () => {
+      active = false;
+    };
   }, [level]);
 
   const filtered = useMemo(() => {

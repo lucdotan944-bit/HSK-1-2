@@ -8,6 +8,7 @@ import PronunciationButton from "@/components/PronunciationButton";
 import { useBadgeToast } from "@/components/BadgeToast";
 import { speak } from "@/lib/speech";
 import LevelPicker from "@/components/LevelPicker";
+import { usePreferredLevel } from "@/lib/level";
 
 const GRADES = [
   { q: 0, icon: "😵", label: "Quên" },
@@ -19,7 +20,7 @@ const GRADES = [
 
 export default function ReviewPage() {
   const { announce, toastNode } = useBadgeToast();
-  const [level, setLevel] = useState(2);
+  const [level, setLevel] = usePreferredLevel(2);
   const [due, setDue] = useState<number | null>(null);
   const [words, setWords] = useState<Word[] | null>(null);
   const [index, setIndex] = useState(0);
@@ -27,10 +28,15 @@ export default function ReviewPage() {
   const [done, setDone] = useState(false);
 
   useEffect(() => {
+    let active = true;
     api.stats().then((s) => {
+      if (!active) return;
       const cumulativeDue = s.by_level.filter((l) => l.level <= level).reduce((sum, l) => sum + l.due, 0);
       setDue(cumulativeDue);
     });
+    return () => {
+      active = false;
+    };
   }, [level]);
 
   async function start() {

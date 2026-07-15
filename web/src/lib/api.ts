@@ -178,8 +178,9 @@ export const api = {
   stats: () => jsonFetch<Stats>("/api/stats"),
   gamifyState: () => jsonFetch<GamifyState>("/api/gamify/state"),
   badges: () => jsonFetch<{ badges: Badge[] }>("/api/badges"),
-  themes: () => jsonFetch<{ themes: Theme[] }>("/api/themes"),
-  theme: (id: string) => jsonFetch<{ theme: Theme; words: Word[] }>(`/api/themes/${id}`),
+  themes: (level?: number) => jsonFetch<{ themes: Theme[] }>(`/api/themes${level ? `?level=${level}` : ""}`),
+  theme: (id: string, level?: number) =>
+    jsonFetch<{ theme: Theme; words: Word[] }>(`/api/themes/${id}${level ? `?level=${level}` : ""}`),
   learnThemeWord: (themeId: string, wordId: number) =>
     jsonFetch<{ ok: true; newly_earned_badges: string[] }>(`/api/themes/${themeId}/learn/${wordId}`, {
       method: "POST",

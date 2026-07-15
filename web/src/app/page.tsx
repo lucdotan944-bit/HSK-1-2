@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { Card, StatChip, SectionTitle, Button } from "@/components/ui";
+import { Card, StatChip, Button } from "@/components/ui";
 import SealStamp from "@/components/SealStamp";
+import HskLevelSelector from "@/components/HskLevelSelector";
+import HomeThemesSection from "@/components/HomeThemesSection";
 
 export default async function HomePage() {
   const [stats, gamify, themes] = await Promise.all([api.stats(), api.gamifyState(), api.themes()]);
@@ -17,6 +19,8 @@ export default async function HomePage() {
           Mỗi chữ Hán đi kèm âm Hán-Việt bạn đã biết từ tiếng mẹ đẻ — học nhanh hơn, nhớ lâu hơn.
         </p>
       </section>
+
+      <HskLevelSelector byLevel={stats.by_level} />
 
       {gamify.placement_level === 0 && (
         <Card className="flex flex-col items-start gap-3 border-seal/40 bg-seal-soft md:flex-row md:items-center md:justify-between">
@@ -64,22 +68,7 @@ export default async function HomePage() {
         </div>
       </Card>
 
-      <section>
-        <SectionTitle sub="Chọn một chủ đề để học từ vựng theo nhóm">Chủ đề</SectionTitle>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {themes.themes.map((t) => (
-            <Link key={t.id} href={`/lesson/${t.id}`}>
-              <Card className="flex h-full flex-col gap-2 transition-transform hover:-translate-y-0.5">
-                <span className="text-2xl">{t.icon}</span>
-                <span className="font-semibold leading-tight">{t.name}</span>
-                <span className="font-data text-xs text-ink-soft">
-                  {t.learned_words}/{t.total_words} từ
-                </span>
-              </Card>
-            </Link>
-          ))}
-        </div>
-      </section>
+      <HomeThemesSection initialThemes={themes.themes} byLevel={stats.by_level} />
     </div>
   );
 }

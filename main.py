@@ -530,36 +530,38 @@ def get_context_note_api(word: str):
 # ---- THEMES API ----
 
 @app.get("/api/themes")
-def list_themes():
+def list_themes(level: int = None):
     conn = get_db()
     rows = conn.execute("""
         SELECT t.*,
-               (SELECT COUNT(*) FROM theme_words WHERE theme_id = t.id) as total_words,
-               (SELECT COUNT(*) FROM theme_words tw 
-                JOIN user_words uw ON tw.word_id = uw.word_id 
-                WHERE tw.theme_id = t.id AND uw.repetitions >= 1) as learned_words
+               (SELECT COUNT(*) FROM theme_words tw JOIN words w ON tw.word_id = w.id
+                WHERE tw.theme_id = t.id AND (? IS NULL OR w.hsk_level = ?)) as total_words,
+               (SELECT COUNT(*) FROM theme_words tw
+                JOIN words w ON tw.word_id = w.id
+                JOIN user_words uw ON tw.word_id = uw.word_id
+                WHERE tw.theme_id = t.id AND uw.repetitions >= 1 AND (? IS NULL OR w.hsk_level = ?)) as learned_words
         FROM themes t
         ORDER BY t.id
-    """).fetchall()
+    """, (level, level, level, level)).fetchall()
     conn.close()
     return {"themes": [dict(r) for r in rows]}
 
 @app.get("/api/themes/{theme_id}")
-def get_theme(theme_id: str):
+def get_theme(theme_id: str, level: int = None):
     conn = get_db()
     t = conn.execute("SELECT * FROM themes WHERE id=?", (theme_id,)).fetchone()
     if not t:
         return {"error": "Theme not found"}
-    
+
     words = conn.execute("""
         SELECT w.id, w.simplified, w.pinyin, w.meanings, w.radical,
                uw.repetitions
         FROM theme_words tw
         JOIN words w ON tw.word_id = w.id
         JOIN user_words uw ON w.id = uw.word_id
-        WHERE tw.theme_id = ?
+        WHERE tw.theme_id = ? AND (? IS NULL OR w.hsk_level = ?)
         ORDER BY tw.sort_order
-    """, (theme_id,)).fetchall()
+    """, (theme_id, level, level)).fetchall()
     conn.close()
     
     result = []

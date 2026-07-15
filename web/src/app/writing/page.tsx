@@ -6,6 +6,7 @@ import { api, meaningsList, type WritingChar } from "@/lib/api";
 import { Button, Card } from "@/components/ui";
 import { useBadgeToast } from "@/components/BadgeToast";
 import LevelPicker from "@/components/LevelPicker";
+import { usePreferredLevel } from "@/lib/level";
 
 // HanziWriter types aren't published standalone; declare the minimal shape we use.
 interface HanziWriterInstance {
@@ -23,7 +24,7 @@ declare global {
 
 export default function WritingPage() {
   const { announce, toastNode } = useBadgeToast();
-  const [level, setLevel] = useState(1);
+  const [level, setLevel] = usePreferredLevel(1);
   const [chars, setChars] = useState<WritingChar[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [wordInfo, setWordInfo] = useState<string>("");
@@ -33,7 +34,13 @@ export default function WritingPage() {
   const writerRef = useRef<HanziWriterInstance | null>(null);
 
   useEffect(() => {
-    api.writingCharacters(level).then((d) => setChars(d.characters.filter((c) => c.hsk_level === level)));
+    let current = true;
+    api.writingCharacters(level).then((d) => {
+      if (current) setChars(d.characters.filter((c) => c.hsk_level === level));
+    });
+    return () => {
+      current = false;
+    };
   }, [level]);
 
   useEffect(() => {
