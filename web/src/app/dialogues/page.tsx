@@ -4,11 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, type DialogueSummary } from "@/lib/api";
 import { Card, SectionTitle } from "@/components/ui";
-import LevelPicker from "@/components/LevelPicker";
 import { usePreferredLevel } from "@/lib/level";
 
 export default function DialoguesPage() {
-  const [level, setLevel] = usePreferredLevel(1);
+  const [level] = usePreferredLevel(1);
   const [dialogues, setDialogues] = useState<DialogueSummary[]>([]);
 
   useEffect(() => {
@@ -26,7 +25,12 @@ export default function DialoguesPage() {
   return (
     <div className="space-y-5">
       <SectionTitle sub="Hội thoại giao tiếp thực tế, có phiên âm và audio">Hội thoại</SectionTitle>
-      <LevelPicker level={level} onChange={setLevel} />
+      <p className="font-data text-sm text-ink-soft">
+        Đang xem HSK {level} —{" "}
+        <Link href="/" className="text-jade underline">
+          đổi cấp ở Trang chủ
+        </Link>
+      </p>
       {shown.length === 0 ? (
         <p className="text-sm text-ink-soft">Chưa có hội thoại nào cho HSK {level}.</p>
       ) : (

@@ -7,7 +7,6 @@ import { Card, Button, ProgressBar } from "@/components/ui";
 import PronunciationButton from "@/components/PronunciationButton";
 import { useBadgeToast } from "@/components/BadgeToast";
 import { speak } from "@/lib/speech";
-import LevelPicker from "@/components/LevelPicker";
 import { usePreferredLevel } from "@/lib/level";
 
 const GRADES = [
@@ -20,7 +19,7 @@ const GRADES = [
 
 export default function ReviewPage() {
   const { announce, toastNode } = useBadgeToast();
-  const [level, setLevel] = usePreferredLevel(2);
+  const [level] = usePreferredLevel(2);
   const [due, setDue] = useState<number | null>(null);
   const [words, setWords] = useState<Word[] | null>(null);
   const [index, setIndex] = useState(0);
@@ -72,9 +71,12 @@ export default function ReviewPage() {
     return (
       <div className="mx-auto max-w-md space-y-4 text-center">
         <h1 className="font-display text-2xl font-bold">Ôn tập theo Spaced Repetition</h1>
-        <div className="text-left">
-          <LevelPicker level={level} onChange={setLevel} />
-        </div>
+        <p className="font-data text-sm text-ink-soft">
+          Đang ôn HSK {level} —{" "}
+          <Link href="/" className="text-jade underline">
+            đổi cấp ở Trang chủ
+          </Link>
+        </p>
         <p className="text-ink-soft">
           {due !== null ? `${due} từ (HSK ≤ ${level}) cần ôn hôm nay` : "Đang tải..."}
         </p>
