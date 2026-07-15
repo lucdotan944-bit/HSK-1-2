@@ -113,9 +113,10 @@ export type DailySession = {
   skills: SkillBreakdown["skills"];
   blocks: {
     review: Word[];
-    listening: { dialogue_id: string; simplified: string; pinyin: string; vietnamese: string } | null;
+    listening: { dialogue_id: string; simplified: string; pinyin: string; vietnamese: string; hsk_level: number } | null;
     speaking: Word | null;
     conversation_scenario_id: string | null;
+    conversation_hsk_level: number | null;
   };
 };
 

@@ -793,7 +793,7 @@ def get_daily_session(level: int = None):
     review_block = [dict(r) for r in review_rows]
 
     listen_row = conn.execute("""
-        SELECT dl.dialogue_id, dl.simplified, dl.pinyin, dl.vietnamese
+        SELECT dl.dialogue_id, dl.simplified, dl.pinyin, dl.vietnamese, d.hsk_level
         FROM dialogue_lines dl JOIN dialogues d ON dl.dialogue_id = d.id
         WHERE (? IS NULL OR d.hsk_level <= ?)
         ORDER BY RANDOM() LIMIT 1
@@ -801,7 +801,7 @@ def get_daily_session(level: int = None):
     listening_block = dict(listen_row) if listen_row else None
 
     speak_row = conn.execute("""
-        SELECT id, simplified, pinyin, meanings FROM words
+        SELECT id, simplified, pinyin, meanings, hsk_level FROM words
         WHERE (? IS NULL OR hsk_level <= ?)
         ORDER BY RANDOM() LIMIT 1
     """, (level, level)).fetchone()
@@ -812,6 +812,7 @@ def get_daily_session(level: int = None):
     ] or list(CONVERSATIONS.keys())
     import random
     conversation_id = random.choice(scenario_ids) if scenario_ids else None
+    conversation_hsk_level = CONVERSATIONS[conversation_id]["hsk_level"] if conversation_id else None
 
     conn.close()
     return {
@@ -822,6 +823,7 @@ def get_daily_session(level: int = None):
             "listening": listening_block,
             "speaking": speaking_block,
             "conversation_scenario_id": conversation_id,
+            "conversation_hsk_level": conversation_hsk_level,
         },
     }
 
