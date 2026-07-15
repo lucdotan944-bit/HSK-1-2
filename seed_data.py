@@ -2,8 +2,11 @@
 HSK 1 & 2 vocabulary data (HSK 3.0 standard)
 with Vietnamese translations for Vietnamese learners
 """
+import os
 import sqlite3
 import json
+
+_BULK_VOCAB_PATH = os.path.join(os.path.dirname(__file__), "data", "hsk_vocab_full.json")
 
 HSK1_WORDS = [
     # Pronouns
@@ -299,8 +302,28 @@ HSK2_WORDS = [
     ("可能", "kě néng", "có thể", 2, "口"),
 ]
 
+_bulk_words_cache = None
+
+def load_bulk_words():
+    """HSK 3-9 words (plus any HSK1/2 words beyond the hand-curated set below),
+    generated offline by scripts/build_hsk_vocab.py from public HSK 3.0 word
+    lists + Han-Viet/meaning dictionaries — see that script's docstring for
+    sources. Already excludes anything duplicating HSK1_WORDS/HSK2_WORDS."""
+    global _bulk_words_cache
+    if _bulk_words_cache is None:
+        if os.path.exists(_BULK_VOCAB_PATH):
+            with open(_BULK_VOCAB_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+            _bulk_words_cache = [
+                (w["simplified"], w["pinyin"], w["meanings"], w["hsk_level"], "")
+                for w in data
+            ]
+        else:
+            _bulk_words_cache = []
+    return _bulk_words_cache
+
 def get_words():
-    return HSK1_WORDS + HSK2_WORDS
+    return HSK1_WORDS + HSK2_WORDS + load_bulk_words()
 
 def get_hsk1():
     return HSK1_WORDS
@@ -581,8 +604,21 @@ SINO_VIET_MAP = {
     "保护": "bảo hộ", "因为": "nhân vị",
 }
 
+_bulk_sino_viet_cache = None
+
+def _bulk_sino_viet_map():
+    global _bulk_sino_viet_cache
+    if _bulk_sino_viet_cache is None:
+        if os.path.exists(_BULK_VOCAB_PATH):
+            with open(_BULK_VOCAB_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+            _bulk_sino_viet_cache = {w["simplified"]: w["sino_viet"] for w in data}
+        else:
+            _bulk_sino_viet_cache = {}
+    return _bulk_sino_viet_cache
+
 def get_sino_viet(word):
-    return SINO_VIET_MAP.get(word, "")
+    return SINO_VIET_MAP.get(word) or _bulk_sino_viet_map().get(word, "")
 
 # ========== EXAMPLE SENTENCES ==========
 # (data defined above at lines ~311-470)
@@ -812,6 +848,10 @@ BADGES = {
     "writer_50":   {"name": "Cao thủ viết chữ",       "icon": "🖌️", "desc": "Luyện viết 50 chữ Hán"},
     "xp_500":      {"name": "500 điểm kinh nghiệm",   "icon": "⭐", "desc": "Đạt 500 XP"},
     "xp_2000":     {"name": "2000 điểm kinh nghiệm",  "icon": "🌟", "desc": "Đạt 2000 XP"},
+    "exam_first_pass":    {"name": "Thi thử đầu tiên",   "icon": "📝", "desc": "Đạt một bài thi thử"},
+    "exam_tier_so_cap":   {"name": "Vượt qua Sơ cấp",    "icon": "🥉", "desc": "Đạt bài thi thử HSK 1-3"},
+    "exam_tier_trung_cap":{"name": "Vượt qua Trung cấp", "icon": "🥈", "desc": "Đạt bài thi thử HSK 4-6"},
+    "exam_tier_cao_cap":  {"name": "Vượt qua Cao cấp",   "icon": "🥇", "desc": "Đạt bài thi thử HSK 7-9"},
 }
 
 def get_badges():

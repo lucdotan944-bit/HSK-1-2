@@ -1,0 +1,2 @@
+# Build-time only deps for scripts/build_hsk_vocab.py — not needed at app runtime.
+pypinyin==0.51.0

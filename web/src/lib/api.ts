@@ -53,6 +53,7 @@ export type Stats = {
   due_hsk1: number;
   due_hsk2: number;
   dialogues: number;
+  by_level: { level: number; total: number; due: number }[];
 };
 
 export type Theme = {
@@ -118,6 +119,48 @@ export type DailySession = {
   };
 };
 
+export type ExamMCQuestion = {
+  word_id: number;
+  simplified: string;
+  pinyin: string;
+  hsk_level: number;
+  correct_meaning: string;
+  choices: string[];
+  section: "listening" | "reading";
+};
+export type ExamClozeQuestion = {
+  word_id: number;
+  section: "grammar";
+  sentence_blanked: string;
+  sentence_vi: string;
+  correct_word: string;
+  choices: string[];
+};
+export type ExamQuestion = ExamMCQuestion | ExamClozeQuestion;
+
+export type ExamStart = { hsk_level: number; questions: ExamQuestion[]; time_limit_seconds: number };
+export type ExamSectionScore = { total: number; correct: number; pct: number | null };
+export type ExamSubmitResult = {
+  score_pct: number;
+  passed: boolean;
+  correct_count: number;
+  total_questions: number;
+  section_scores: Record<string, ExamSectionScore>;
+  newly_earned_badges: string[];
+};
+export type ExamSession = {
+  id: number;
+  hsk_level: number;
+  total_questions: number;
+  correct_count: number;
+  section_scores: Record<string, ExamSectionScore>;
+  score_pct: number;
+  passed: number;
+  duration_seconds: number;
+  created_at: string;
+};
+export type ExamBestLevel = { hsk_level: number; best_pct: number | null; pass_count: number; attempt_count: number };
+
 export type ConversationChoice = { id: string; cn: string; pinyin: string; vi: string; next: string };
 export type ConversationNode = {
   npc: { cn: string; pinyin: string; vi: string };
@@ -182,7 +225,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ answers }),
     }),
-  writingCharacters: (hskLevel = 2) =>
+  writingCharacters: (hskLevel = 1) =>
     jsonFetch<{ characters: WritingChar[] }>(`/api/writing/characters?hsk_level=${hskLevel}`),
   completeWriting: (character: string, mistakes: number) =>
     jsonFetch<{ ok: true; newly_earned_badges: string[] }>(`/api/writing/complete`, {
@@ -201,6 +244,16 @@ export const api = {
       `/api/conversation/${scenarioId}/respond`,
       { method: "POST", body: JSON.stringify({ node_id: nodeId, choice_id: choiceId }) }
     ),
+  examStart: (hskLevel: number, count?: number) =>
+    jsonFetch<ExamStart>(`/api/exam/${hskLevel}/start${count ? `?count=${count}` : ""}`),
+  examSubmit: (hskLevel: number, answers: { section: string; correct: boolean }[], durationSeconds: number) =>
+    jsonFetch<ExamSubmitResult>(`/api/exam/${hskLevel}/submit`, {
+      method: "POST",
+      body: JSON.stringify({ answers, duration_seconds: durationSeconds }),
+    }),
+  examHistory: (hskLevel?: number) =>
+    jsonFetch<{ sessions: ExamSession[] }>(`/api/exam/history${hskLevel ? `?hsk_level=${hskLevel}` : ""}`),
+  examBest: () => jsonFetch<{ levels: ExamBestLevel[] }>(`/api/exam/best`),
 };
 
 export function meaningsList(m: string | string[]): string[] {

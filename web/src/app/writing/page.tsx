@@ -5,6 +5,7 @@ import Script from "next/script";
 import { api, meaningsList, type WritingChar } from "@/lib/api";
 import { Button, Card } from "@/components/ui";
 import { useBadgeToast } from "@/components/BadgeToast";
+import LevelPicker from "@/components/LevelPicker";
 
 // HanziWriter types aren't published standalone; declare the minimal shape we use.
 interface HanziWriterInstance {
@@ -92,19 +93,7 @@ export default function WritingPage() {
 
       {!active ? (
         <>
-          <div className="flex gap-2">
-            {[1, 2].map((lv) => (
-              <button
-                key={lv}
-                onClick={() => setLevel(lv)}
-                className={`rounded-full px-4 py-1.5 text-sm font-semibold ${
-                  level === lv ? "bg-jade text-white" : "border border-line"
-                }`}
-              >
-                HSK {lv}
-              </button>
-            ))}
-          </div>
+          <LevelPicker level={level} onChange={setLevel} />
           <div className="grid grid-cols-6 gap-2 sm:grid-cols-8">
             {chars.map((c) => (
               <button

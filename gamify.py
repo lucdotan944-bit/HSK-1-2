@@ -56,6 +56,9 @@ def check_badges(conn):
         "SELECT COUNT(*) FROM user_words WHERE repetitions >= 5"
     ).fetchone()[0]
     writing_practiced = conn.execute("SELECT COUNT(*) FROM writing_practice").fetchone()[0]
+    exam_passed_levels = {
+        r["hsk_level"] for r in conn.execute("SELECT DISTINCT hsk_level FROM exam_sessions WHERE passed=1").fetchall()
+    }
 
     def award_if_new(badge_id, condition):
         if badge_id not in already and condition:
@@ -72,5 +75,9 @@ def check_badges(conn):
     award_if_new("writer_50", writing_practiced >= 50)
     award_if_new("xp_500", state["xp"] >= 500)
     award_if_new("xp_2000", state["xp"] >= 2000)
+    award_if_new("exam_first_pass", len(exam_passed_levels) >= 1)
+    award_if_new("exam_tier_so_cap", any(l in (1, 2, 3) for l in exam_passed_levels))
+    award_if_new("exam_tier_trung_cap", any(l in (4, 5, 6) for l in exam_passed_levels))
+    award_if_new("exam_tier_cao_cap", any(l in (7, 8, 9) for l in exam_passed_levels))
 
     return newly_earned

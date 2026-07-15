@@ -7,6 +7,7 @@ import { Card, Button, ProgressBar } from "@/components/ui";
 import PronunciationButton from "@/components/PronunciationButton";
 import { useBadgeToast } from "@/components/BadgeToast";
 import { speak } from "@/lib/speech";
+import LevelPicker from "@/components/LevelPicker";
 
 const GRADES = [
   { q: 0, icon: "😵", label: "Quên" },
@@ -18,6 +19,7 @@ const GRADES = [
 
 export default function ReviewPage() {
   const { announce, toastNode } = useBadgeToast();
+  const [level, setLevel] = useState(2);
   const [due, setDue] = useState<number | null>(null);
   const [words, setWords] = useState<Word[] | null>(null);
   const [index, setIndex] = useState(0);
@@ -25,11 +27,14 @@ export default function ReviewPage() {
   const [done, setDone] = useState(false);
 
   useEffect(() => {
-    api.stats().then((s) => setDue(s.due));
-  }, []);
+    api.stats().then((s) => {
+      const cumulativeDue = s.by_level.filter((l) => l.level <= level).reduce((sum, l) => sum + l.due, 0);
+      setDue(cumulativeDue);
+    });
+  }, [level]);
 
   async function start() {
-    const data = await api.reviewWords(2, 20);
+    const data = await api.reviewWords(level, 20);
     if (!data.words.length) {
       setDone(true);
       return;
@@ -61,7 +66,12 @@ export default function ReviewPage() {
     return (
       <div className="mx-auto max-w-md space-y-4 text-center">
         <h1 className="font-display text-2xl font-bold">Ôn tập theo Spaced Repetition</h1>
-        <p className="text-ink-soft">{due !== null ? `${due} từ cần ôn hôm nay` : "Đang tải..."}</p>
+        <div className="text-left">
+          <LevelPicker level={level} onChange={setLevel} />
+        </div>
+        <p className="text-ink-soft">
+          {due !== null ? `${due} từ (HSK ≤ ${level}) cần ôn hôm nay` : "Đang tải..."}
+        </p>
         <Button onClick={start} disabled={due === 0}>
           Bắt đầu ôn tập
         </Button>

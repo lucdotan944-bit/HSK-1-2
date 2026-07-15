@@ -10,15 +10,31 @@
 
 ## Tính năng
 
-- 📚 268 từ vựng HSK1+HSK2 — pinyin, Hán-Việt, nghĩa tiếng Việt
+- 📚 ~10.900 từ vựng đủ HSK 1-9 (chuẩn HSK 3.0) — pinyin, Hán-Việt, nghĩa tiếng Việt, gom thành 3 cấp: Sơ cấp (1-3), Trung cấp (4-6), Cao cấp (7-9)
 - 🃏 Flashcard với spaced repetition (SM-2)
+- 📝 Thi thử theo từng cấp HSK 1-9 — 3 phần Nghe/Đọc-Từ vựng/Ngữ pháp-Điền từ, tính giờ, chấm điểm, lưu lịch sử
 - 💬 9 hội thoại giao tiếp thực tế + 3 kịch bản hội thoại phân nhánh tương tác (order_food, ask_direction, shopping)
 - 🎯 Test xếp trình độ, quiz theo chủ đề, quy đổi HSK cũ ↔ HSK 3.0
 - ✍️ Luyện viết chữ Hán (HanziWriter)
 - 🎤 Chấm phát âm qua Web Speech API (miễn phí, browser-native)
+- 🔊 Giọng đọc neural chuẩn Phổ Thông/Bắc Kinh phía server (edge-tts, miễn phí, cache lại) — fallback về giọng trình duyệt nếu server lỗi
 - 🔥 Gamification: XP, streak, huy hiệu
 - 📊 Bản đồ kỹ năng (Từ vựng/Ngữ pháp/Nghe/Nói) tính từ lịch sử luyện tập, không dùng AI ngoài
 - ⏱️ Phiên học 5 phút/ngày cá nhân hoá: ghép ôn từ + nghe + nói + hội thoại, ưu tiên kỹ năng yếu nhất
+
+## Nguồn dữ liệu từ vựng HSK 3-9
+
+Bộ từ HSK1/HSK2 gốc (268 từ) vẫn được biên soạn tay. Phần mở rộng lên HSK 1-9 đầy đủ (`data/hsk_vocab_full.json`,
+sinh bởi `scripts/build_hsk_vocab.py`) được ghép tự động từ các nguồn công khai sau — xem docstring của script để
+biết chi tiết logic ghép/fallback:
+
+- Danh sách từ theo băng HSK 3.0 chính thức: [krmanik/HSK-3.0](https://github.com/krmanik/HSK-3.0) (CC BY-SA 4.0)
+- Âm Hán-Việt + nghĩa tiếng Việt cấp từ: [ryanphung/chinese-hanviet-cognates](https://github.com/ryanphung/chinese-hanviet-cognates)
+- Từ điển Hán-Việt (fallback nghĩa): [ph0ngp/CVDICT](https://github.com/ph0ngp/CVDICT) (CC BY-SA 4.0, dịch từ CC-CEDICT)
+- Bảng âm Hán-Việt từng chữ đơn (fallback ghép âm): [truyencuatui/VietPhrase](https://github.com/truyencuatui/VietPhrase)
+
+Vì đây là dữ liệu ghép tự động (không tay-kiểm từng từ, đặc biệt ở HSK 7-9), một số nghĩa/âm Hán-Việt có thể
+chưa hoàn hảo — xem `data/hsk_vocab_report.json` để biết tỉ lệ nguồn dùng cho mỗi từ.
 
 ## Chạy dự án (development)
 
@@ -51,18 +67,25 @@ npm start   # phục vụ trên port 3000, vẫn cần backend FastAPI chạy so
 
 ```
 ├── main.py              # FastAPI server + API endpoints
-├── database.py          # SQLite schema (16 tables)
-├── seed_data.py         # 268 từ + 9 hội thoại + 22 context notes
+├── database.py          # SQLite schema (17 tables)
+├── seed_data.py         # 268 từ tay biên soạn + load_bulk_words() (HSK3-9) + hội thoại + context notes
 ├── sm2.py               # SM-2 spaced repetition algorithm
 ├── gamify.py            # XP, streak, huy hiệu
 ├── hsk_mapping.py        # Bảng quy đổi HSK cũ ↔ HSK 3.0
 ├── conversations.py      # Kịch bản hội thoại phân nhánh
+├── tts.py                # TTS neural (edge-tts) + cache đĩa
 ├── requirements.txt
+├── data/
+│   ├── hsk_vocab_full.json    # Từ vựng HSK3-9 sinh bởi scripts/build_hsk_vocab.py
+│   └── hsk_vocab_report.json  # Báo cáo coverage của lần build gần nhất
+├── scripts/
+│   ├── build_hsk_vocab.py     # Script build 1 lần, xem docstring để biết nguồn/logic ghép
+│   └── requirements.txt       # Dep chỉ cần lúc build (pypinyin), không dùng ở runtime
 ├── static/               # (cũ, không còn dùng — giữ lại tham khảo)
 └── web/                  # Frontend Next.js
-    ├── src/app/          # Route pages (App Router)
-    ├── src/components/   # AppShell, SealStamp, ui.tsx, PronunciationButton, SkillRadar...
-    └── src/lib/          # api.ts (typed client), speech.ts (Web Speech API helpers)
+    ├── src/app/          # Route pages (App Router), gồm app/exam/ (thi thử)
+    ├── src/components/   # AppShell, SealStamp, ui.tsx, PronunciationButton, SkillRadar, LevelPicker...
+    └── src/lib/          # api.ts (typed client), speech.ts (TTS + ASR), hsk.ts (cấu hình 3 nhóm cấp)
 ```
 
 ## API Endpoints
@@ -89,14 +112,18 @@ npm start   # phục vụ trên port 3000, vẫn cần backend FastAPI chạy so
 | `GET /api/daily-session` | Lắp ráp phiên học 5 phút/ngày |
 | `GET /api/conversation/{scenario_id}`, `POST /api/conversation/{scenario_id}/respond` | Hội thoại phân nhánh |
 | `GET /api/hsk-mapping` | Bảng quy đổi HSK cũ ↔ HSK 3.0 |
+| `GET /api/exam/{level}/start`, `POST /api/exam/{level}/submit` | Thi thử theo cấp (Nghe/Đọc/Ngữ pháp), chấm điểm |
+| `GET /api/exam/history`, `GET /api/exam/best` | Lịch sử và điểm cao nhất thi thử |
+| `GET /api/tts?text=` | Giọng đọc neural (edge-tts), cache đĩa tại `tts_cache/` |
 
 ## Công nghệ
 
 - **Backend**: FastAPI + SQLite + SM-2, logic rule-based (không LLM/API trả phí)
 - **Frontend**: Next.js 16 (App Router) + TypeScript + Tailwind CSS v4
-- **Audio**: Web Speech API (nhận diện + phát âm tiếng Trung, miễn phí)
+- **Nhận diện giọng nói**: Web Speech API (miễn phí, browser-native)
+- **Giọng đọc (TTS)**: edge-tts (giọng neural Microsoft Edge, miễn phí, không cần API key), cache đĩa; fallback Web Speech API nếu server lỗi
 - **Viết chữ**: HanziWriter (CDN)
-- **Database**: SQLite (16 tables)
+- **Database**: SQLite (17 tables)
 
 ## Giấy phép
 

@@ -1,9 +1,12 @@
-// Web Speech API helpers — free, browser-native ASR/TTS (Chrome/Edge).
-// No paid pronunciation-assessment API; scoring is a simple hanzi character
-// overlap heuristic, same approach as the previous vanilla-JS app.
+// TTS: server-side neural Mandarin voice (edge-tts, cached, see /api/tts) is
+// the primary path — far more natural and consistent than what's installed
+// on a given user's OS. Falls back to the browser's built-in Web Speech API
+// (best-effort, quality varies by machine) if the server is unreachable.
+// ASR (speech recognition) stays entirely client-side/free via Web Speech API.
 
 // Voice names known to speak standard Putonghua (Beijing/Mainland accent),
 // checked in priority order against whatever zh-CN voices the OS/browser exposes.
+// Only used by the browser-TTS fallback path.
 const PREFERRED_MANDARIN_VOICE_NAMES = [
   "Tingting", // macOS
   "Xiaoxiao", // Edge neural
@@ -37,7 +40,7 @@ function pickMandarinVoice(): SpeechSynthesisVoice | undefined {
   return zhCN[0];
 }
 
-export function speak(text: string, rate = 0.85) {
+function speakBrowserFallback(text: string, rate: number) {
   if (typeof window === "undefined" || !window.speechSynthesis) return;
   window.speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
@@ -47,6 +50,29 @@ export function speak(text: string, rate = 0.85) {
   u.rate = rate;
   u.pitch = 1.0;
   window.speechSynthesis.speak(u);
+}
+
+let currentAudio: HTMLAudioElement | null = null;
+
+export function speak(text: string, rate = 0.85) {
+  if (typeof window === "undefined") return;
+  window.speechSynthesis?.cancel();
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
+
+  let fellBack = false;
+  const fallback = () => {
+    if (fellBack) return;
+    fellBack = true;
+    speakBrowserFallback(text, rate);
+  };
+
+  const audio = new Audio(`/api/tts?text=${encodeURIComponent(text)}&rate=${rate}`);
+  currentAudio = audio;
+  audio.onerror = fallback;
+  audio.play().catch(fallback);
 }
 
 export type PronScore = "ok" | "warn" | "fail";

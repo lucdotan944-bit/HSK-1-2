@@ -150,7 +150,20 @@ def init_db():
             FOREIGN KEY (word_id) REFERENCES words(id)
         );
 
+        CREATE TABLE IF NOT EXISTS exam_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hsk_level INTEGER NOT NULL,
+            total_questions INTEGER NOT NULL,
+            correct_count INTEGER NOT NULL,
+            section_scores TEXT NOT NULL DEFAULT '{}',
+            score_pct REAL NOT NULL,
+            passed INTEGER NOT NULL,
+            duration_seconds INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
         CREATE UNIQUE INDEX IF NOT EXISTS idx_writing_char ON writing_practice(character);
+        CREATE INDEX IF NOT EXISTS idx_exam_sessions_level ON exam_sessions(hsk_level, created_at);
         CREATE INDEX IF NOT EXISTS idx_xp_log_created ON xp_log(created_at);
         CREATE INDEX IF NOT EXISTS idx_next_review ON user_words(next_review);
         CREATE INDEX IF NOT EXISTS idx_hsk_level ON words(hsk_level);

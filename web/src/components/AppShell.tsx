@@ -10,6 +10,7 @@ const NAV = [
   { href: "/daily", label: "Học 5 phút", icon: "钟" },
   { href: "/review", label: "Ôn tập", icon: "复" },
   { href: "/dialogues", label: "Hội thoại", icon: "话" },
+  { href: "/exam", label: "Thi thử", icon: "试" },
   { href: "/progress", label: "Tiến độ", icon: "进" },
 ];
 

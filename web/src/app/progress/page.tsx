@@ -1,6 +1,7 @@
 import { api } from "@/lib/api";
 import { Card, SectionTitle, ProgressBar } from "@/components/ui";
 import SkillRadar from "@/components/SkillRadar";
+import { TIERS } from "@/lib/hsk";
 
 export default async function ProgressPage() {
   const [progress, gamify, skillData, badges] = await Promise.all([
@@ -35,21 +36,32 @@ export default async function ProgressPage() {
         <p className="mt-3 text-center text-sm text-ink-soft">{skillData.explanation_vi}</p>
       </Card>
 
-      <section>
-        <p className="mb-3 font-semibold">Theo cấp độ HSK</p>
-        <div className="space-y-3">
-          {progress.levels.map((l) => (
-            <Card key={l.hsk_level}>
-              <div className="mb-1 flex items-center justify-between text-sm">
-                <span className="font-semibold">HSK {l.hsk_level}</span>
-                <span className="font-data text-ink-soft">
-                  {l.mastered}/{l.total} thuộc
-                </span>
+      <section className="space-y-5">
+        <p className="font-semibold">Theo cấp độ HSK</p>
+        {TIERS.map((tier) => {
+          const levels = progress.levels.filter((l) => tier.levels.includes(l.hsk_level));
+          if (!levels.length) return null;
+          return (
+            <div key={tier.id}>
+              <p className="mb-2 font-data text-xs uppercase tracking-wide text-ink-soft">
+                {tier.label} · {tier.sublabel}
+              </p>
+              <div className="space-y-3">
+                {levels.map((l) => (
+                  <Card key={l.hsk_level}>
+                    <div className="mb-1 flex items-center justify-between text-sm">
+                      <span className="font-semibold">HSK {l.hsk_level}</span>
+                      <span className="font-data text-ink-soft">
+                        {l.mastered}/{l.total} thuộc
+                      </span>
+                    </div>
+                    <ProgressBar value={l.total ? (l.mastered / l.total) * 100 : 0} />
+                  </Card>
+                ))}
               </div>
-              <ProgressBar value={(l.mastered / l.total) * 100} />
-            </Card>
-          ))}
-        </div>
+            </div>
+          );
+        })}
       </section>
 
       <section>

@@ -1,4 +1,6 @@
+import json
 import os
+import random
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -9,6 +11,7 @@ from pydantic import BaseModel
 from database import get_db, init_db
 from sm2 import sm2
 import gamify
+import tts
 from seed_data import get_words, get_hsk1, get_hsk2, get_sentence, get_sino_viet, get_context_note, get_dialogues, THEMES, get_theme_words, BADGES
 from hsk_mapping import HSK_MAPPING
 from conversations import CONVERSATIONS
@@ -40,36 +43,40 @@ def seed_user_state():
     conn.close()
 
 def seed_words():
+    """Idempotent + incremental: inserts only words not already present (by
+    simplified text), so re-running after the vocab set grows (e.g. HSK1-2 ->
+    HSK1-9) tops up an existing DB instead of requiring a wipe, and doesn't
+    touch existing rows' user_words/SM-2 progress."""
     conn = get_db()
-    count = conn.execute("SELECT COUNT(*) FROM words").fetchone()[0]
-    if count > 0:
-        conn.close()
-        return
-    
+    existing = {r["simplified"] for r in conn.execute("SELECT simplified FROM words").fetchall()}
+
     words = get_words()
-    conn.executemany(
-        "INSERT INTO words (simplified, pinyin, meanings, hsk_level, radical) VALUES (?, ?, ?, ?, ?)",
-        words
-    )
-    conn.commit()
-    
-    # Update sino_viet for all words
-    for w in conn.execute("SELECT id, simplified FROM words").fetchall():
+    new_words = [w for w in words if w[0] not in existing]
+    if new_words:
+        conn.executemany(
+            "INSERT INTO words (simplified, pinyin, meanings, hsk_level, radical) VALUES (?, ?, ?, ?, ?)",
+            new_words
+        )
+        conn.commit()
+
+    # Backfill sino_viet for any word missing it (new rows, or older rows seeded
+    # before this word had a mapping).
+    for w in conn.execute("SELECT id, simplified FROM words WHERE sino_viet IS NULL OR sino_viet = ''").fetchall():
         sv = get_sino_viet(w["simplified"])
         if sv:
             conn.execute("UPDATE words SET sino_viet=? WHERE id=?", (sv, w["id"]))
     conn.commit()
-    
-    # Auto-add to user_words for all words
-    word_ids = conn.execute("SELECT id FROM words").fetchall()
-    for w in word_ids:
+
+    # Auto-add to user_words for any word missing a review-state row.
+    for w in conn.execute("SELECT id FROM words").fetchall():
         conn.execute(
             "INSERT OR IGNORE INTO user_words (word_id) VALUES (?)",
             (w[0],)
         )
     conn.commit()
     conn.close()
-    print(f"Seeded {len(words)} words")
+    if new_words:
+        print(f"Seeded {len(new_words)} new words ({len(words)} total in vocab source)")
 
 def seed_themes():
     conn = get_db()
@@ -169,35 +176,35 @@ def list_badges():
 @app.get("/api/stats")
 def get_stats():
     conn = get_db()
-    # Total words per HSK level
-    hsk1 = conn.execute("SELECT COUNT(*) FROM words WHERE hsk_level=1").fetchone()[0]
-    hsk2 = conn.execute("SELECT COUNT(*) FROM words WHERE hsk_level=2").fetchone()[0]
-    
+
+    # Total + due words per HSK level (1-9)
+    level_rows = conn.execute("""
+        SELECT w.hsk_level as level, COUNT(*) as total,
+               SUM(CASE WHEN uw.next_review <= datetime('now') THEN 1 ELSE 0 END) as due
+        FROM words w JOIN user_words uw ON uw.word_id = w.id
+        GROUP BY w.hsk_level ORDER BY w.hsk_level
+    """).fetchall()
+    by_level = [{"level": r["level"], "total": r["total"], "due": r["due"] or 0} for r in level_rows]
+    by_level_map = {r["level"]: r for r in by_level}
+    hsk1 = by_level_map.get(1, {}).get("total", 0)
+    hsk2 = by_level_map.get(2, {}).get("total", 0)
+    due_hsk1 = by_level_map.get(1, {}).get("due", 0)
+    due_hsk2 = by_level_map.get(2, {}).get("due", 0)
+
     # Review stats
     due = conn.execute("SELECT COUNT(*) FROM user_words WHERE next_review <= datetime('now')").fetchone()[0]
     total = conn.execute("SELECT COUNT(*) FROM user_words").fetchone()[0]
     learned = conn.execute("SELECT COUNT(*) FROM user_words WHERE repetitions >= 5").fetchone()[0]
-    
-    # Due by level
-    due_hsk1 = conn.execute("""
-        SELECT COUNT(*) FROM user_words uw 
-        JOIN words w ON uw.word_id = w.id 
-        WHERE w.hsk_level=1 AND uw.next_review <= datetime('now')
-    """).fetchone()[0]
-    due_hsk2 = conn.execute("""
-        SELECT COUNT(*) FROM user_words uw 
-        JOIN words w ON uw.word_id = w.id 
-        WHERE w.hsk_level=2 AND uw.next_review <= datetime('now')
-    """).fetchone()[0]
-    
+
     dlg_count = conn.execute("SELECT COUNT(*) FROM dialogues").fetchone()[0]
-    
+
     conn.close()
     return {
         "hsk1": hsk1, "hsk2": hsk2,
         "due": due, "total": total, "learned": learned,
         "due_hsk1": due_hsk1, "due_hsk2": due_hsk2,
-        "dialogues": dlg_count
+        "dialogues": dlg_count,
+        "by_level": by_level,
     }
 
 @app.get("/api/review/{hsk_level}")
@@ -842,6 +849,200 @@ def respond_conversation(scenario_id: str, data: ConversationRespond):
         newly_earned = []
     return {"node_id": next_id, "node": next_node, "is_end": is_end,
             "newly_earned_badges": newly_earned}
+
+# ---- MOCK EXAM (thi thử) — per-level, 3 sections: nghe / đọc / ngữ pháp ----
+
+EXAM_TIER_QUESTION_COUNT = {1: 20, 2: 20, 3: 20, 4: 30, 5: 30, 6: 30, 7: 40, 8: 40, 9: 40}
+EXAM_TIER_TIME_LIMIT_MIN = {1: 15, 2: 15, 3: 15, 4: 25, 5: 25, 6: 25, 7: 35, 8: 35, 9: 35}
+EXAM_PASS_THRESHOLD = 60.0
+
+
+def _exam_mc_question(conn, word_row, pool_level, section):
+    q = _generate_choices(conn, word_row, pool_level)
+    q["section"] = section
+    return q
+
+
+def _exam_cloze_question(conn, level, exclude_ids):
+    """Fill-in-the-blank from a real example sentence, if one exists for a word
+    at/under this level. Example sentences only exist for the hand-curated
+    HSK1/2 words, so this section is naturally sparse-to-empty at higher
+    levels — callers pad remaining slots with reading MC questions instead."""
+    rows = conn.execute(
+        "SELECT id, simplified FROM words WHERE hsk_level <= ? ORDER BY RANDOM() LIMIT 60", (level,)
+    ).fetchall()
+    for r in rows:
+        if r["id"] in exclude_ids:
+            continue
+        sent = get_sentence(r["simplified"])
+        if sent and r["simplified"] in sent[0]:
+            blanked = sent[0].replace(r["simplified"], "___", 1)
+            wrong_rows = conn.execute(
+                "SELECT simplified FROM words WHERE hsk_level <= ? AND id != ? ORDER BY RANDOM() LIMIT 3",
+                (level, r["id"])
+            ).fetchall()
+            choices = [r["simplified"]] + [w["simplified"] for w in wrong_rows]
+            random.shuffle(choices)
+            return {
+                "word_id": r["id"], "section": "grammar",
+                "sentence_blanked": blanked, "sentence_vi": sent[1],
+                "correct_word": r["simplified"], "choices": choices,
+            }
+    return None
+
+
+@app.get("/api/exam/{hsk_level}/start")
+def start_exam(hsk_level: int, count: int = 0):
+    hsk_level = max(1, min(9, hsk_level))
+    total = max(5, min(60, count)) if count else EXAM_TIER_QUESTION_COUNT[hsk_level]
+    n_listen = round(total * 0.3)
+    n_grammar = round(total * 0.3)
+    n_read = total - n_listen - n_grammar
+
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, simplified, pinyin, meanings, hsk_level FROM words WHERE hsk_level <= ? ORDER BY RANDOM() LIMIT ?",
+        (hsk_level, n_listen + n_read)
+    ).fetchall()
+    listen_rows, read_rows = rows[:n_listen], rows[n_listen:]
+
+    questions = []
+    used_ids = set()
+    for r in listen_rows:
+        questions.append(_exam_mc_question(conn, r, hsk_level, "listening"))
+        used_ids.add(r["id"])
+    for r in read_rows:
+        questions.append(_exam_mc_question(conn, r, hsk_level, "reading"))
+        used_ids.add(r["id"])
+
+    grammar_added = 0
+    for _ in range(n_grammar):
+        cq = _exam_cloze_question(conn, hsk_level, used_ids)
+        if not cq:
+            break
+        questions.append(cq)
+        used_ids.add(cq["word_id"])
+        grammar_added += 1
+
+    if grammar_added < n_grammar:
+        need = n_grammar - grammar_added
+        pad_rows = conn.execute(
+            "SELECT id, simplified, pinyin, meanings, hsk_level FROM words WHERE hsk_level <= ? ORDER BY RANDOM() LIMIT ?",
+            (hsk_level, need + len(used_ids))
+        ).fetchall()
+        added = 0
+        for r in pad_rows:
+            if r["id"] in used_ids:
+                continue
+            questions.append(_exam_mc_question(conn, r, hsk_level, "reading"))
+            used_ids.add(r["id"])
+            added += 1
+            if added >= need:
+                break
+
+    random.shuffle(questions)
+    conn.close()
+    return {
+        "hsk_level": hsk_level,
+        "questions": questions,
+        "time_limit_seconds": EXAM_TIER_TIME_LIMIT_MIN[hsk_level] * 60,
+    }
+
+
+class ExamAnswer(BaseModel):
+    section: str  # 'listening' | 'reading' | 'grammar'
+    correct: bool
+
+
+class ExamSubmit(BaseModel):
+    answers: list[ExamAnswer]
+    duration_seconds: int = 0
+
+
+@app.post("/api/exam/{hsk_level}/submit")
+def submit_exam(hsk_level: int, data: ExamSubmit):
+    hsk_level = max(1, min(9, hsk_level))
+    section_totals = {}
+    for a in data.answers:
+        s = section_totals.setdefault(a.section, {"total": 0, "correct": 0})
+        s["total"] += 1
+        if a.correct:
+            s["correct"] += 1
+
+    total = len(data.answers)
+    correct_count = sum(1 for a in data.answers if a.correct)
+    score_pct = round(100 * correct_count / total, 1) if total else 0.0
+    passed = score_pct >= EXAM_PASS_THRESHOLD
+
+    section_scores = {
+        k: {"total": v["total"], "correct": v["correct"],
+            "pct": round(100 * v["correct"] / v["total"], 1) if v["total"] else None}
+        for k, v in section_totals.items()
+    }
+
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO exam_sessions (hsk_level, total_questions, correct_count, section_scores, score_pct, passed, duration_seconds) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (hsk_level, total, correct_count, json.dumps(section_scores, ensure_ascii=False),
+         score_pct, 1 if passed else 0, data.duration_seconds)
+    )
+    gamify.touch_streak(conn)
+    gamify.award_xp(conn, correct_count * 5 + (50 if passed else 0), 'exam')
+    newly_earned = gamify.check_badges(conn)
+    conn.commit()
+    conn.close()
+
+    return {
+        "score_pct": score_pct, "passed": passed, "correct_count": correct_count,
+        "total_questions": total, "section_scores": section_scores,
+        "newly_earned_badges": newly_earned,
+    }
+
+
+@app.get("/api/exam/history")
+def exam_history(hsk_level: int = None, limit: int = 20):
+    conn = get_db()
+    if hsk_level:
+        rows = conn.execute(
+            "SELECT * FROM exam_sessions WHERE hsk_level=? ORDER BY created_at DESC LIMIT ?", (hsk_level, limit)
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM exam_sessions ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["section_scores"] = json.loads(d["section_scores"])
+        result.append(d)
+    return {"sessions": result}
+
+
+@app.get("/api/exam/best")
+def exam_best():
+    """Best score + attempt count per level — for the exam picker page."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT hsk_level, MAX(score_pct) as best_pct, SUM(passed) as pass_count, COUNT(*) as attempt_count
+        FROM exam_sessions GROUP BY hsk_level
+    """).fetchall()
+    conn.close()
+    return {"levels": [dict(r) for r in rows]}
+
+
+# ---- TTS (server-side neural Mandarin voice, edge-tts, disk-cached) ----
+
+@app.get("/api/tts")
+async def get_tts(text: str, voice: str = tts.DEFAULT_VOICE, rate: float = 1.0):
+    text = text.strip()[:500]
+    if not text:
+        return JSONResponse({"error": "empty text"}, status_code=400)
+    try:
+        path = await tts.synthesize(text, voice=voice, rate=rate)
+    except Exception:
+        return JSONResponse({"error": "tts_unavailable"}, status_code=503)
+    return FileResponse(path, media_type="audio/mpeg", headers={"Cache-Control": "public, max-age=31536000"})
+
 
 @app.get("/")
 def index():
