@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Be_Vietnam_Pro, Noto_Serif_SC, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import AppShell from "@/components/AppShell";
@@ -21,10 +21,36 @@ const dataMono = JetBrains_Mono({
   weight: ["400", "500", "700"],
 });
 
+const SITE_URL = "https://hsk-1-2.vercel.app";
+const TITLE = "Hán Ngữ+ — Học tiếng Trung cho người Việt";
+const DESCRIPTION =
+  "Học HSK qua lợi thế Hán-Việt: từ vựng, ngữ pháp, nghe, nói và luyện viết chữ Hán — miễn phí, cá nhân hoá mỗi ngày.";
+
 export const metadata: Metadata = {
-  title: "Hán Ngữ+ — Học tiếng Trung cho người Việt",
-  description:
-    "Học HSK qua lợi thế Hán-Việt: từ vựng, ngữ pháp, nghe, nói và luyện viết chữ Hán — miễn phí, cá nhân hoá mỗi ngày.",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: TITLE,
+    template: "%s — Hán Ngữ+",
+  },
+  description: DESCRIPTION,
+  keywords: ["học tiếng Trung", "HSK", "Hán Việt", "từ vựng HSK", "luyện viết chữ Hán", "học HSK online"],
+  openGraph: {
+    title: TITLE,
+    description: DESCRIPTION,
+    url: SITE_URL,
+    siteName: "Hán Ngữ+",
+    locale: "vi_VN",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: TITLE,
+    description: DESCRIPTION,
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#3f6659",
 };
 
 export default function RootLayout({
