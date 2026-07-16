@@ -623,6 +623,9 @@ def get_sino_viet(word):
 # ========== EXAMPLE SENTENCES ==========
 # (data defined above at lines ~311-470)
 
+from example_sentences_bulk import BULK_EXAMPLE_SENTENCES
+EXAMPLE_SENTENCES.update(BULK_EXAMPLE_SENTENCES)
+
 def get_sentence(word):
     return EXAMPLE_SENTENCES.get(word, None)
 
