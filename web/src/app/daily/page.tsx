@@ -8,7 +8,6 @@ import PronunciationButton from "@/components/PronunciationButton";
 import { useBadgeToast } from "@/components/BadgeToast";
 import { speak } from "@/lib/speech";
 import { usePreferredLevel } from "@/lib/level";
-import LevelPicker from "@/components/LevelPicker";
 
 function LevelBadge({ level }: { level: number }) {
   return (
@@ -24,7 +23,7 @@ const GRADES = [
 
 export default function DailySessionPage() {
   const { announce, toastNode } = useBadgeToast();
-  const [level, setLevel] = usePreferredLevel(1);
+  const [level] = usePreferredLevel(1);
   const [session, setSession] = useState<DailySession | null>(null);
   const [reviewIndex, setReviewIndex] = useState(0);
   const [reviewDone, setReviewDone] = useState(false);
@@ -59,10 +58,12 @@ export default function DailySessionPage() {
         Phiên học hôm nay
       </SectionTitle>
 
-      <Card>
-        <p className="mb-2 text-sm text-ink-soft">Cấp HSK cho phiên học này</p>
-        <LevelPicker level={level} onChange={setLevel} />
-      </Card>
+      <p className="font-data text-sm text-ink-soft">
+        Đang ôn HSK {level} —{" "}
+        <Link href="/" className="text-jade underline">
+          đổi cấp ở Trang chủ
+        </Link>
+      </p>
 
       {!session ? (
         <p className="text-ink-soft">Đang soạn phiên học cho bạn...</p>
