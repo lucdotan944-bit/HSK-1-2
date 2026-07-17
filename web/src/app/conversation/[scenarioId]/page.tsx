@@ -15,28 +15,55 @@ export default function ConversationPage({ params }: { params: Promise<{ scenari
   const [node, setNode] = useState<ConversationNode | null>(null);
   const [isEnd, setIsEnd] = useState(false);
   const [history, setHistory] = useState<{ speaker: "npc" | "user"; cn: string; pinyin: string; vi: string }[]>([]);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    api.conversation(scenarioId).then((d) => {
-      setTitle(d.title);
-      setNodeId(d.start);
-      setNode(d.node);
-      setHistory([{ speaker: "npc", ...d.node.npc }]);
-      speak(d.node.npc.cn);
-    });
+    let active = true;
+    api.conversation(scenarioId).then(
+      (d) => {
+        if (!active) return;
+        setTitle(d.title);
+        setNodeId(d.start);
+        setNode(d.node);
+        setHistory([{ speaker: "npc", ...d.node.npc }]);
+        speak(d.node.npc.cn);
+      },
+      () => {
+        if (active) setError(true);
+      }
+    );
+    return () => {
+      active = false;
+    };
   }, [scenarioId]);
 
   async function choose(choiceId: string) {
     if (!nodeId || !node) return;
     const chosen = node.choices.find((c) => c.id === choiceId);
     if (chosen) setHistory((h) => [...h, { speaker: "user", cn: chosen.cn, pinyin: chosen.pinyin, vi: chosen.vi }]);
-    const r = await api.conversationRespond(scenarioId, nodeId, choiceId);
-    announce(r.newly_earned_badges);
-    setNodeId(r.node_id);
-    setNode(r.node);
-    setIsEnd(r.is_end);
-    setHistory((h) => [...h, { speaker: "npc", ...r.node.npc }]);
-    speak(r.node.npc.cn);
+    try {
+      const r = await api.conversationRespond(scenarioId, nodeId, choiceId);
+      announce(r.newly_earned_badges);
+      setNodeId(r.node_id);
+      setNode(r.node);
+      setIsEnd(r.is_end);
+      setHistory((h) => [...h, { speaker: "npc", ...r.node.npc }]);
+      speak(r.node.npc.cn);
+    } catch {
+      setError(true);
+    }
+  }
+
+  if (error) {
+    return (
+      <div className="mx-auto max-w-lg space-y-4 text-center">
+        <p className="font-display text-xl font-bold">Có lỗi xảy ra</p>
+        <p className="text-ink-soft">Không thể tải hoặc tiếp tục hội thoại. Vui lòng thử lại.</p>
+        <Link href="/daily">
+          <Button>Quay lại phiên học</Button>
+        </Link>
+      </div>
+    );
   }
 
   if (!node) return <p className="text-ink-soft">Đang tải hội thoại...</p>;

@@ -10,11 +10,16 @@ export default function ExamPickerPage() {
   const [best, setBest] = useState<Record<number, ExamBestLevel>>({});
 
   useEffect(() => {
+    let active = true;
     api.examBest().then((d) => {
+      if (!active) return;
       const map: Record<number, ExamBestLevel> = {};
       for (const l of d.levels) map[l.hsk_level] = l;
       setBest(map);
-    });
+    }, () => {});
+    return () => {
+      active = false;
+    };
   }, []);
 
   return (

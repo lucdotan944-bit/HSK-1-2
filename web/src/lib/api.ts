@@ -9,6 +9,14 @@
 // next.config.ts) without needing CORS.
 const SERVER_API_BASE = process.env.API_ORIGIN || "http://127.0.0.1:8000";
 
+export class ApiError extends Error {
+  status: number;
+  constructor(path: string, status: number) {
+    super(`API ${path} failed: ${status}`);
+    this.status = status;
+  }
+}
+
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const base = typeof window === "undefined" ? SERVER_API_BASE : "";
   const res = await fetch(`${base}${path}`, {
@@ -16,7 +24,7 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
     cache: "no-store",
   });
-  if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
+  if (!res.ok) throw new ApiError(path, res.status);
   return res.json();
 }
 

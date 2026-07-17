@@ -31,13 +31,21 @@ export default function WritingPage() {
   const [status, setStatus] = useState("");
   const [result, setResult] = useState<{ mistakes: number } | null>(null);
   const [scriptReady, setScriptReady] = useState(() => typeof window !== "undefined" && !!window.HanziWriter);
+  const [loadError, setLoadError] = useState(false);
   const writerRef = useRef<HanziWriterInstance | null>(null);
 
   useEffect(() => {
     let current = true;
-    api.writingCharacters(level).then((d) => {
-      if (current) setChars(d.characters.filter((c) => c.hsk_level === level));
-    });
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset error banner when level changes
+    setLoadError(false);
+    api.writingCharacters(level).then(
+      (d) => {
+        if (current) setChars(d.characters.filter((c) => c.hsk_level === level));
+      },
+      () => {
+        if (current) setLoadError(true);
+      }
+    );
     return () => {
       current = false;
     };
@@ -84,8 +92,12 @@ export default function WritingPage() {
       showOutline: true,
       onComplete: async (summary) => {
         const mistakes = summary.totalMistakes;
-        const r = await api.completeWriting(active, mistakes);
-        announce(r.newly_earned_badges);
+        try {
+          const r = await api.completeWriting(active, mistakes);
+          announce(r.newly_earned_badges);
+        } catch {
+          // Practice result still shown below even if saving the attempt failed.
+        }
         setResult({ mistakes });
         setStatus("");
       },
@@ -101,6 +113,7 @@ export default function WritingPage() {
       {!active ? (
         <>
           <LevelPicker level={level} onChange={setLevel} />
+          {loadError && <p className="text-sm text-seal">Không tải được danh sách chữ. Vui lòng thử lại.</p>}
           <div className="grid grid-cols-6 gap-2 sm:grid-cols-8">
             {chars.map((c) => (
               <button

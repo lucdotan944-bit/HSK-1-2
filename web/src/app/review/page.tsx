@@ -25,37 +25,52 @@ export default function ReviewPage() {
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [done, setDone] = useState(false);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     let active = true;
-    api.stats().then((s) => {
-      if (!active) return;
-      const cumulativeDue = s.by_level.filter((l) => l.level <= level).reduce((sum, l) => sum + l.due, 0);
-      setDue(cumulativeDue);
-    });
+    api.stats().then(
+      (s) => {
+        if (!active) return;
+        const cumulativeDue = s.by_level.filter((l) => l.level <= level).reduce((sum, l) => sum + l.due, 0);
+        setDue(cumulativeDue);
+      },
+      () => {
+        if (active) setError(true);
+      }
+    );
     return () => {
       active = false;
     };
   }, [level]);
 
   async function start() {
-    const data = await api.reviewWords(level, 20);
-    if (!data.words.length) {
-      setDone(true);
-      return;
+    try {
+      const data = await api.reviewWords(level, 20);
+      if (!data.words.length) {
+        setDone(true);
+        return;
+      }
+      setWords(data.words);
+      setIndex(0);
+      setFlipped(false);
+      setDone(false);
+      speak(data.words[0].simplified);
+    } catch {
+      setError(true);
     }
-    setWords(data.words);
-    setIndex(0);
-    setFlipped(false);
-    setDone(false);
-    speak(data.words[0].simplified);
   }
 
   async function grade(quality: number) {
     if (!words) return;
     const w = words[index];
-    const r = await api.submitReview(w.id, quality);
-    announce(r.newly_earned_badges);
+    try {
+      const r = await api.submitReview(w.id, quality);
+      announce(r.newly_earned_badges);
+    } catch {
+      setError(true);
+      return;
+    }
     const next = index + 1;
     if (next >= words.length) {
       setWords(null);
@@ -65,6 +80,24 @@ export default function ReviewPage() {
       setFlipped(false);
       speak(words[next].simplified);
     }
+  }
+
+  if (error) {
+    return (
+      <div className="mx-auto max-w-md space-y-4 text-center">
+        <p className="font-display text-xl font-bold">Không tải được dữ liệu ôn tập</p>
+        <p className="text-ink-soft">Có lỗi kết nối. Vui lòng thử lại.</p>
+        <Button
+          onClick={() => {
+            setError(false);
+            setWords(null);
+            setDone(false);
+          }}
+        >
+          Thử lại
+        </Button>
+      </div>
+    );
   }
 
   if (!words && !done) {

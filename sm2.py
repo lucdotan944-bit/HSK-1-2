@@ -1,19 +1,17 @@
 """SM-2 Spaced Repetition Algorithm (super-memo 2)"""
-import math
-from datetime import datetime
 
 def sm2(quality: int, repetitions: int, easiness: float, interval: int):
     """
     SM-2 algorithm: tính lịch ôn tập dựa trên quality (0-5)
-    
+
     Args:
         quality: 0=quên hoàn toàn, 3=nhớ nhưng khó, 5=hoàn hảo
         repetitions: số lần nhớ liên tiếp
         easiness: EF (easiness factor)
         interval: ngày đến lần ôn tiếp theo
-    
+
     Returns:
-        (new_repetitions, new_easiness, new_interval, next_review_date)
+        (new_repetitions, new_easiness, new_interval)
     """
     if quality < 3:
         # Quên → reset

@@ -14,12 +14,20 @@ export default function WordsPage() {
   const [words, setWords] = useState<Word[]>([]);
   const [search, setSearch] = useState("");
   const [visible, setVisible] = useState(PAGE_SIZE);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     let active = true;
-    api.wordsByLevel(level).then((d) => {
-      if (active) setWords(d.words);
-    });
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset error banner when level changes
+    setLoadError(false);
+    api.wordsByLevel(level).then(
+      (d) => {
+        if (active) setWords(d.words);
+      },
+      () => {
+        if (active) setLoadError(true);
+      }
+    );
     setVisible(PAGE_SIZE);
     return () => {
       active = false;
@@ -43,6 +51,7 @@ export default function WordsPage() {
     <div className="space-y-5">
       <h1 className="font-display text-2xl font-bold">Danh sách từ vựng</h1>
       <LevelPicker level={level} onChange={setLevel} />
+      {loadError && <p className="text-sm text-seal">Không tải được danh sách từ. Vui lòng thử lại.</p>}
       <div className="flex items-center justify-between gap-3">
         <input
           value={search}

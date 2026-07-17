@@ -7,7 +7,7 @@ import { Card, Button, ProgressBar } from "@/components/ui";
 import { useBadgeToast } from "@/components/BadgeToast";
 import { speak } from "@/lib/speech";
 
-type Stage = "intro" | "quiz" | "done";
+type Stage = "intro" | "quiz" | "done" | "error";
 
 export default function PlacementPage() {
   const { announce, toastNode } = useBadgeToast();
@@ -20,13 +20,17 @@ export default function PlacementPage() {
   const [mapDesc, setMapDesc] = useState<string>("");
 
   async function start() {
-    const data = await api.placementQuestions(15);
-    setQuestions(data.questions);
-    setIndex(0);
-    setAnswers([]);
-    setAnswered(null);
-    setStage("quiz");
-    if (data.questions[0]) speak(data.questions[0].simplified);
+    try {
+      const data = await api.placementQuestions(15);
+      setQuestions(data.questions);
+      setIndex(0);
+      setAnswers([]);
+      setAnswered(null);
+      setStage("quiz");
+      if (data.questions[0]) speak(data.questions[0].simplified);
+    } catch {
+      setStage("error");
+    }
   }
 
   function answer(choice: string, q: QuizChoice) {
@@ -51,13 +55,32 @@ export default function PlacementPage() {
   }
 
   async function finish(finalAnswers: typeof answers) {
-    const r = await api.submitPlacement(finalAnswers);
-    announce(r.newly_earned_badges);
-    setResultData(r);
-    const mapping = await api.hskMapping();
-    const row = mapping.mapping.find((m) => m.old === r.recommended_level);
-    setMapDesc(row?.desc ?? "");
-    setStage("done");
+    try {
+      const r = await api.submitPlacement(finalAnswers);
+      announce(r.newly_earned_badges);
+      setResultData(r);
+      const mapping = await api.hskMapping();
+      const row = mapping.mapping.find((m) => m.old === r.recommended_level);
+      setMapDesc(row?.desc ?? "");
+      setStage("done");
+    } catch {
+      setStage("error");
+    }
+  }
+
+  if (stage === "error") {
+    return (
+      <div className="mx-auto max-w-md space-y-4 text-center">
+        <p className="font-display text-xl font-bold">Có lỗi xảy ra</p>
+        <p className="text-ink-soft">Không thể tải hoặc nộp bài test. Vui lòng thử lại.</p>
+        <div className="flex justify-center gap-2">
+          <Link href="/">
+            <Button variant="ghost">Về trang chủ</Button>
+          </Link>
+          <Button onClick={start}>Thử lại</Button>
+        </div>
+      </div>
+    );
   }
 
   if (stage === "intro") {

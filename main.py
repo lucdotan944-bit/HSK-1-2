@@ -1,9 +1,11 @@
 import json
+import logging
 import os
 import random
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from typing import Literal, Optional
 from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
@@ -16,7 +18,19 @@ from seed_data import get_words, get_hsk1, get_hsk2, get_sentence, get_sino_viet
 from hsk_mapping import HSK_MAPPING
 from conversations import CONVERSATIONS
 
-app = FastAPI(title="Hán Ngữ+ - Học tiếng Trung HSK")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("hsk-app")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    seed_words()
+    seed_themes()
+    seed_dialogues()
+    seed_user_state()
+    yield
+
+app = FastAPI(title="Hán Ngữ+ - Học tiếng Trung HSK", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,16 +39,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-@app.on_event("startup")
-def startup():
-    init_db()
-    seed_words()
-    seed_themes()
-    seed_dialogues()
-    seed_user_state()
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Log the full traceback server-side but never leak internals to the client."""
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 def seed_user_state():
     conn = get_db()
@@ -60,19 +69,18 @@ def seed_words():
         conn.commit()
 
     # Backfill sino_viet for any word missing it (new rows, or older rows seeded
-    # before this word had a mapping).
-    for w in conn.execute("SELECT id, simplified FROM words WHERE sino_viet IS NULL OR sino_viet = ''").fetchall():
-        sv = get_sino_viet(w["simplified"])
-        if sv:
-            conn.execute("UPDATE words SET sino_viet=? WHERE id=?", (sv, w["id"]))
-    conn.commit()
+    # before this word had a mapping). Batched with executemany instead of one
+    # UPDATE per row (thousands of round-trips on every restart otherwise).
+    needs_sv = conn.execute("SELECT id, simplified FROM words WHERE sino_viet IS NULL OR sino_viet = ''").fetchall()
+    sv_updates = [(sv, w["id"]) for w in needs_sv if (sv := get_sino_viet(w["simplified"]))]
+    if sv_updates:
+        conn.executemany("UPDATE words SET sino_viet=? WHERE id=?", sv_updates)
+        conn.commit()
 
-    # Auto-add to user_words for any word missing a review-state row.
-    for w in conn.execute("SELECT id FROM words").fetchall():
-        conn.execute(
-            "INSERT OR IGNORE INTO user_words (word_id) VALUES (?)",
-            (w[0],)
-        )
+    # Auto-add to user_words for any word missing a review-state row. Batched
+    # the same way — one executemany instead of one INSERT per word.
+    all_ids = [w[0] for w in conn.execute("SELECT id FROM words").fetchall()]
+    conn.executemany("INSERT OR IGNORE INTO user_words (word_id) VALUES (?)", [(i,) for i in all_ids])
     conn.commit()
     conn.close()
     if new_words:
@@ -214,6 +222,8 @@ def get_stats():
 
 @app.get("/api/review/{hsk_level}")
 def get_review_words(hsk_level: int, limit: int = 20):
+    hsk_level = max(1, min(9, hsk_level))
+    limit = max(1, min(200, limit))
     conn = get_db()
     rows = conn.execute("""
         SELECT w.id, w.simplified, w.pinyin, w.meanings, w.hsk_level, w.radical, w.sino_viet,
@@ -260,14 +270,15 @@ def submit_review(data: ReviewSubmit):
     ).fetchone()
     
     if not row:
-        return {"error": "Word not found"}
+        return JSONResponse({"error": "Word not found"}, status_code=404)
     
     quality = max(0, min(5, data.quality))
     reps, ef, interval = sm2(
         quality, row["repetitions"], row["easiness"], row["interval"]
     )
     
-    next_review = (datetime.now() + timedelta(days=interval)).strftime("%Y-%m-%d %H:%M:%S")
+    # Use UTC to match SQLite's datetime('now'), which every due-date query compares against.
+    next_review = (datetime.utcnow() + timedelta(days=interval)).strftime("%Y-%m-%d %H:%M:%S")
     
     conn.execute("""
         UPDATE user_words 
@@ -296,16 +307,23 @@ def submit_review(data: ReviewSubmit):
         "newly_earned_badges": newly_earned
     }
 
-def _generate_choices(conn, word_row, pool_hsk_level):
-    """Sinh câu hỏi trắc nghiệm: nghĩa đúng + 3 nghĩa sai từ cùng pool HSK level."""
-    import random
+def _fetch_distractor_pool(conn, pool_hsk_level, size=300):
+    """One random batch of candidate meanings for a HSK-level pool, fetched once
+    per request and sampled from in Python — avoids a fresh ORDER BY RANDOM()
+    query per question (previously up to ~50 queries for a quiz, ~40 for an exam)."""
+    rows = conn.execute(
+        "SELECT meanings FROM words WHERE hsk_level <= ? ORDER BY RANDOM() LIMIT ?",
+        (pool_hsk_level, size)
+    ).fetchall()
+    return [r["meanings"].split(",")[0].strip() for r in rows]
+
+def _generate_choices(word_row, distractor_pool):
+    """Sinh câu hỏi trắc nghiệm: nghĩa đúng + 3 nghĩa sai lấy từ distractor_pool
+    (đã fetch sẵn cho cả batch, tránh query lặp cho từng từ)."""
     correct = word_row["meanings"].split(",")[0].strip()
-    wrong_rows = conn.execute("""
-        SELECT meanings FROM words
-        WHERE hsk_level <= ? AND id != ?
-        ORDER BY RANDOM() LIMIT 3
-    """, (pool_hsk_level, word_row["id"])).fetchall()
-    choices = [correct] + [r["meanings"].split(",")[0].strip() for r in wrong_rows]
+    candidates = [m for m in distractor_pool if m != correct]
+    wrong = random.sample(candidates, min(3, len(candidates)))
+    choices = [correct] + wrong
     random.shuffle(choices)
     return {
         "word_id": word_row["id"],
@@ -317,8 +335,10 @@ def _generate_choices(conn, word_row, pool_hsk_level):
     }
 
 @app.get("/api/quiz/choices/{hsk_level}")
-def get_quiz_choices(hsk_level: int, count: int = 10, theme_id: str = None):
+def get_quiz_choices(hsk_level: int, count: int = 10, theme_id: Optional[str] = None):
     """Câu hỏi trắc nghiệm. theme_id: lấy từ trong theme đó (distractor vẫn từ cả pool level)."""
+    hsk_level = max(1, min(9, hsk_level))
+    count = max(1, min(50, count))
     conn = get_db()
     if theme_id:
         rows = conn.execute("""
@@ -333,7 +353,8 @@ def get_quiz_choices(hsk_level: int, count: int = 10, theme_id: str = None):
             FROM words WHERE hsk_level <= ?
             ORDER BY RANDOM() LIMIT ?
         """, (hsk_level, count)).fetchall()
-    questions = [_generate_choices(conn, r, hsk_level) for r in rows]
+    distractor_pool = _fetch_distractor_pool(conn, hsk_level)
+    questions = [_generate_choices(r, distractor_pool) for r in rows]
     conn.close()
     return {"questions": questions}
 
@@ -364,6 +385,7 @@ def submit_theme_quiz(data: ThemeQuizResult):
 @app.get("/api/themes/{theme_id}/related-dialogues")
 def get_related_dialogues(theme_id: str, limit: int = 2):
     """Hội thoại chia sẻ nhiều từ vựng nhất với theme — gợi ý bước học tiếp theo."""
+    limit = max(1, min(20, limit))
     conn = get_db()
     # So khớp substring trên nội dung thoại (dialogue_words seed theo cụm hanzi nên quá thưa)
     rows = conn.execute("""
@@ -415,6 +437,8 @@ def submit_placement(data: PlacementSubmit):
 
 @app.get("/api/quiz/{hsk_level}")
 def get_quiz(hsk_level: int, count: int = 10):
+    hsk_level = max(1, min(9, hsk_level))
+    count = max(1, min(50, count))
     conn = get_db()
     rows = conn.execute("""
         SELECT w.id, w.simplified, w.pinyin, w.meanings, w.hsk_level
@@ -453,6 +477,7 @@ def submit_quiz(data: QuizSubmit):
 
 @app.get("/api/words/{hsk_level}")
 def get_words_list(hsk_level: int):
+    hsk_level = max(1, min(9, hsk_level))
     conn = get_db()
     rows = conn.execute(
         "SELECT id, simplified, pinyin, meanings, hsk_level, radical, sino_viet FROM words WHERE hsk_level=? ORDER BY id",
@@ -497,7 +522,7 @@ def get_progress():
 # ---- DIALOGUES ----
 
 @app.get("/api/dialogues")
-def list_dialogues(level: int = None):
+def list_dialogues(level: Optional[int] = None):
     conn = get_db()
     if level:
         rows = conn.execute(
@@ -517,7 +542,7 @@ def get_dialogue(dialogue_id: str):
     d = conn.execute("SELECT * FROM dialogues WHERE id=?", (dialogue_id,)).fetchone()
     if not d:
         conn.close()
-        return {"error": "Dialogue not found"}
+        return JSONResponse({"error": "Dialogue not found"}, status_code=404)
     
     lines = conn.execute(
         "SELECT * FROM dialogue_lines WHERE dialogue_id=? ORDER BY sort_order",
@@ -535,7 +560,7 @@ def get_context_note_api(word: str):
 # ---- THEMES API ----
 
 @app.get("/api/themes")
-def list_themes(level: int = None):
+def list_themes(level: Optional[int] = None):
     conn = get_db()
     rows = conn.execute("""
         SELECT t.*,
@@ -552,11 +577,12 @@ def list_themes(level: int = None):
     return {"themes": [dict(r) for r in rows]}
 
 @app.get("/api/themes/{theme_id}")
-def get_theme(theme_id: str, level: int = None):
+def get_theme(theme_id: str, level: Optional[int] = None):
     conn = get_db()
     t = conn.execute("SELECT * FROM themes WHERE id=?", (theme_id,)).fetchone()
     if not t:
-        return {"error": "Theme not found"}
+        conn.close()
+        return JSONResponse({"error": "Theme not found"}, status_code=404)
 
     words = conn.execute("""
         SELECT w.id, w.simplified, w.pinyin, w.meanings, w.radical,
@@ -587,6 +613,10 @@ def get_theme(theme_id: str, level: int = None):
 @app.post("/api/themes/{theme_id}/learn/{word_id}")
 def learn_word_in_theme(theme_id: str, word_id: int):
     conn = get_db()
+    exists = conn.execute("SELECT 1 FROM user_words WHERE word_id = ?", (word_id,)).fetchone()
+    if not exists:
+        conn.close()
+        return JSONResponse({"error": "Word not found"}, status_code=404)
     conn.execute("""
         UPDATE user_words SET repetitions = MAX(repetitions, 1),
             total_reviews = total_reviews + 1,
@@ -603,10 +633,10 @@ def learn_word_in_theme(theme_id: str, word_id: int):
 # ---- PRONUNCIATION ----
 
 class PronunciationLog(BaseModel):
-    word_id: int = None
+    word_id: Optional[int] = None
     target_text: str
     recognized_text: str = ""
-    score: str  # 'ok' | 'warn' | 'fail'
+    score: Literal["ok", "warn", "fail"]
 
 @app.post("/api/pronunciation/log")
 def log_pronunciation(data: PronunciationLog):
@@ -774,7 +804,7 @@ def get_hsk_mapping():
 # ---- DAILY 5-MINUTE SESSION ----
 
 @app.get("/api/daily-session")
-def get_daily_session(level: int = None):
+def get_daily_session(level: Optional[int] = None):
     """Lắp ráp phiên học 5 phút/ngày: ôn từ (SM-2), nghe, nói, hội thoại ngắn.
     Ưu tiên nội dung liên quan tới kỹ năng yếu nhất, nhưng luôn đủ 4 khối.
     `level`: cấp HSK người dùng đang chọn (tuỳ chọn) — giới hạn khối nghe/nói/
@@ -875,31 +905,28 @@ EXAM_TIER_TIME_LIMIT_MIN = {1: 15, 2: 15, 3: 15, 4: 25, 5: 25, 6: 25, 7: 35, 8: 
 EXAM_PASS_THRESHOLD = 60.0
 
 
-def _exam_mc_question(conn, word_row, pool_level, section):
-    q = _generate_choices(conn, word_row, pool_level)
+def _exam_mc_question(word_row, distractor_pool, section):
+    q = _generate_choices(word_row, distractor_pool)
     q["section"] = section
     return q
 
 
-def _exam_cloze_question(conn, level, exclude_ids):
+def _exam_cloze_question(cloze_pool, word_distractor_pool, exclude_ids):
     """Fill-in-the-blank from a real example sentence, if one exists for a word
-    at/under this level. Example sentences only exist for the hand-curated
-    HSK1/2 words, so this section is naturally sparse-to-empty at higher
-    levels — callers pad remaining slots with reading MC questions instead."""
-    rows = conn.execute(
-        "SELECT id, simplified FROM words WHERE hsk_level <= ? ORDER BY RANDOM() LIMIT 60", (level,)
-    ).fetchall()
-    for r in rows:
+    at/under this level (all HSK1-9 words have one — see EXAMPLE_SENTENCES in
+    seed_data.py — so this should succeed almost immediately; callers still pad
+    remaining slots with reading MC questions as a fallback if it doesn't).
+
+    cloze_pool/word_distractor_pool are fetched once per exam and shared across
+    calls (previously each call re-queried 60 + 3 random rows from the DB)."""
+    for r in cloze_pool:
         if r["id"] in exclude_ids:
             continue
         sent = get_sentence(r["simplified"])
         if sent and r["simplified"] in sent[0]:
             blanked = sent[0].replace(r["simplified"], "___", 1)
-            wrong_rows = conn.execute(
-                "SELECT simplified FROM words WHERE hsk_level <= ? AND id != ? ORDER BY RANDOM() LIMIT 3",
-                (level, r["id"])
-            ).fetchall()
-            choices = [r["simplified"]] + [w["simplified"] for w in wrong_rows]
+            wrong_words = [w for w in word_distractor_pool if w != r["simplified"]]
+            choices = [r["simplified"]] + random.sample(wrong_words, min(3, len(wrong_words)))
             random.shuffle(choices)
             return {
                 "word_id": r["id"], "section": "grammar",
@@ -923,24 +950,33 @@ def start_exam(hsk_level: int, count: int = 0):
         (hsk_level, n_listen + n_read)
     ).fetchall()
     listen_rows, read_rows = rows[:n_listen], rows[n_listen:]
+    distractor_pool = _fetch_distractor_pool(conn, hsk_level)
 
     questions = []
     used_ids = set()
     for r in listen_rows:
-        questions.append(_exam_mc_question(conn, r, hsk_level, "listening"))
+        questions.append(_exam_mc_question(r, distractor_pool, "listening"))
         used_ids.add(r["id"])
     for r in read_rows:
-        questions.append(_exam_mc_question(conn, r, hsk_level, "reading"))
+        questions.append(_exam_mc_question(r, distractor_pool, "reading"))
         used_ids.add(r["id"])
 
     grammar_added = 0
-    for _ in range(n_grammar):
-        cq = _exam_cloze_question(conn, hsk_level, used_ids)
-        if not cq:
-            break
-        questions.append(cq)
-        used_ids.add(cq["word_id"])
-        grammar_added += 1
+    if n_grammar > 0:
+        # One shared pool for the whole cloze section instead of a fresh
+        # ORDER BY RANDOM() query per question (up to ~12 for a HSK9 exam).
+        cloze_pool = conn.execute(
+            "SELECT id, simplified FROM words WHERE hsk_level <= ? ORDER BY RANDOM() LIMIT ?",
+            (hsk_level, max(200, n_grammar * 20))
+        ).fetchall()
+        cloze_word_pool = [r["simplified"] for r in cloze_pool]
+        for _ in range(n_grammar):
+            cq = _exam_cloze_question(cloze_pool, cloze_word_pool, used_ids)
+            if not cq:
+                break
+            questions.append(cq)
+            used_ids.add(cq["word_id"])
+            grammar_added += 1
 
     if grammar_added < n_grammar:
         need = n_grammar - grammar_added
@@ -952,7 +988,7 @@ def start_exam(hsk_level: int, count: int = 0):
         for r in pad_rows:
             if r["id"] in used_ids:
                 continue
-            questions.append(_exam_mc_question(conn, r, hsk_level, "reading"))
+            questions.append(_exam_mc_question(r, distractor_pool, "reading"))
             used_ids.add(r["id"])
             added += 1
             if added >= need:
@@ -968,7 +1004,7 @@ def start_exam(hsk_level: int, count: int = 0):
 
 
 class ExamAnswer(BaseModel):
-    section: str  # 'listening' | 'reading' | 'grammar'
+    section: Literal["listening", "reading", "grammar"]
     correct: bool
 
 
@@ -1019,7 +1055,7 @@ def submit_exam(hsk_level: int, data: ExamSubmit):
 
 
 @app.get("/api/exam/history")
-def exam_history(hsk_level: int = None, limit: int = 20):
+def exam_history(hsk_level: Optional[int] = None, limit: int = 20):
     conn = get_db()
     if hsk_level:
         rows = conn.execute(
@@ -1064,4 +1100,6 @@ async def get_tts(text: str, voice: str = tts.DEFAULT_VOICE, rate: float = 1.0):
 
 @app.get("/")
 def index():
-    return FileResponse("static/index.html")
+    """API root — the real frontend lives on Vercel (web/src/), this is just
+    a lightweight health/info check for the Render service itself."""
+    return {"service": "hsk-app-api", "status": "ok"}

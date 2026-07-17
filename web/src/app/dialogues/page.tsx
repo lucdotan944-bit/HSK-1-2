@@ -9,12 +9,18 @@ import { usePreferredLevel } from "@/lib/level";
 export default function DialoguesPage() {
   const [level] = usePreferredLevel(1);
   const [dialogues, setDialogues] = useState<DialogueSummary[]>([]);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     let active = true;
-    api.dialogues().then((d) => {
-      if (active) setDialogues(d.dialogues);
-    });
+    api.dialogues().then(
+      (d) => {
+        if (active) setDialogues(d.dialogues);
+      },
+      () => {
+        if (active) setLoadError(true);
+      }
+    );
     return () => {
       active = false;
     };
@@ -31,7 +37,9 @@ export default function DialoguesPage() {
           đổi cấp ở Trang chủ
         </Link>
       </p>
-      {shown.length === 0 ? (
+      {loadError ? (
+        <p className="text-sm text-seal">Không tải được danh sách hội thoại. Vui lòng thử lại.</p>
+      ) : shown.length === 0 ? (
         <p className="text-sm text-ink-soft">Chưa có hội thoại nào cho HSK {level}.</p>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
