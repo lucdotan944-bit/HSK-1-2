@@ -4,6 +4,7 @@ import { Card, StatChip, Button } from "@/components/ui";
 import SealStamp from "@/components/SealStamp";
 import HskLevelSelector from "@/components/HskLevelSelector";
 import HomeThemesSection from "@/components/HomeThemesSection";
+import { formatDueCount } from "@/lib/hsk";
 
 export default async function HomePage() {
   const [stats, gamify, themes] = await Promise.all([api.stats(), api.gamifyState(), api.themes()]);
@@ -42,7 +43,7 @@ export default async function HomePage() {
       <div className="flex gap-2 overflow-x-auto pb-1">
         <StatChip value={gamify.xp} label="XP" />
         <StatChip value={`🔥${gamify.current_streak}`} label="streak" />
-        <StatChip value={stats.due} label="cần ôn" />
+        <StatChip value={formatDueCount(stats.due)} label="cần ôn" />
         <StatChip value={stats.learned} label="đã thuộc" />
         <StatChip value={stats.total} label="từ" />
         <StatChip value={stats.dialogues} label="hội thoại" />

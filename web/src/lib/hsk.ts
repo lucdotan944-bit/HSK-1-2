@@ -18,3 +18,14 @@ export function tierForLevel(level: number): Tier {
 }
 
 export const ALL_LEVELS = TIERS.flatMap((t) => t.levels);
+
+// A fresh account starts with every word already due (next_review defaults to
+// now), so the raw due-count can read as an intimidating backlog (e.g.
+// "10943 cần ôn") even though a review session only ever pulls one batch at
+// a time. Cap the *displayed* number at that batch size — the real count is
+// unaffected, this only softens how it's framed to the learner.
+export const REVIEW_SESSION_SIZE = 20;
+
+export function formatDueCount(due: number): string {
+  return due > REVIEW_SESSION_SIZE ? `${REVIEW_SESSION_SIZE}+` : String(due);
+}

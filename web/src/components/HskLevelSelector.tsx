@@ -1,7 +1,7 @@
 "use client";
 
 import { Card } from "@/components/ui";
-import { ALL_LEVELS, tierForLevel } from "@/lib/hsk";
+import { ALL_LEVELS, tierForLevel, formatDueCount } from "@/lib/hsk";
 import { usePreferredLevel } from "@/lib/level";
 
 export default function HskLevelSelector({
@@ -24,7 +24,7 @@ export default function HskLevelSelector({
       <div className="flex shrink-0 items-center gap-3">
         {stat && (
           <span className="font-data text-xs text-ink-soft whitespace-nowrap">
-            {stat.total} từ{stat.due > 0 ? ` · ${stat.due} cần ôn` : ""}
+            {stat.total} từ{stat.due > 0 ? ` · ${formatDueCount(stat.due)} cần ôn` : ""}
           </span>
         )}
         <div className="relative">
