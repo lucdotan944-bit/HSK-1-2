@@ -8,6 +8,7 @@ import PronunciationButton from "@/components/PronunciationButton";
 import { useBadgeToast } from "@/components/BadgeToast";
 import { speak } from "@/lib/speech";
 import { usePreferredLevel } from "@/lib/level";
+import { formatDueCount } from "@/lib/hsk";
 
 const GRADES = [
   { q: 0, icon: "😵", label: "Quên" },
@@ -111,7 +112,7 @@ export default function ReviewPage() {
           </Link>
         </p>
         <p className="text-ink-soft">
-          {due !== null ? `${due} từ (HSK ≤ ${level}) cần ôn hôm nay` : "Đang tải..."}
+          {due !== null ? `${formatDueCount(due)} từ (HSK ≤ ${level}) cần ôn hôm nay` : "Đang tải..."}
         </p>
         <Button onClick={start} disabled={due === 0}>
           Bắt đầu ôn tập

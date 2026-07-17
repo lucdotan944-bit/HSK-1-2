@@ -406,25 +406,58 @@ def get_related_dialogues(theme_id: str, limit: int = 2):
 class PlacementSubmit(BaseModel):
     answers: list  # [{word_id, hsk_level, correct}]
 
+@app.get("/api/placement/questions")
+def get_placement_questions(per_level: int = 2):
+    """Coverage across all HSK1-9 levels (previously placement only ever
+    drew HSK<=2 words, which meant submit_placement could never recommend
+    higher than HSK2 no matter how advanced the learner was)."""
+    per_level = max(1, min(5, per_level))
+    conn = get_db()
+    questions = []
+    for level in range(1, 10):
+        rows = conn.execute(
+            "SELECT id, simplified, pinyin, meanings, hsk_level FROM words WHERE hsk_level = ? ORDER BY RANDOM() LIMIT ?",
+            (level, per_level)
+        ).fetchall()
+        if not rows:
+            continue
+        pool_rows = conn.execute(
+            "SELECT meanings FROM words WHERE hsk_level = ? ORDER BY RANDOM() LIMIT 100",
+            (level,)
+        ).fetchall()
+        distractor_pool = [r["meanings"].split(",")[0].strip() for r in pool_rows]
+        questions.extend(_generate_choices(r, distractor_pool) for r in rows)
+    random.shuffle(questions)
+    conn.close()
+    return {"questions": questions}
+
 @app.post("/api/placement/submit")
 def submit_placement(data: PlacementSubmit):
     conn = get_db()
-    hsk2_total = 0
-    hsk2_correct = 0
+    per_level_total = {}
+    per_level_correct = {}
     total_correct = 0
     for a in data.answers:
         is_correct = 1 if a.get("correct") else 0
         total_correct += is_correct
-        if a.get("hsk_level") == 2:
-            hsk2_total += 1
-            hsk2_correct += is_correct
+        level = a.get("hsk_level")
+        if level is not None:
+            per_level_total[level] = per_level_total.get(level, 0) + 1
+            per_level_correct[level] = per_level_correct.get(level, 0) + is_correct
         conn.execute(
             "INSERT INTO quiz_results (word_id, correct, quiz_type) VALUES (?, ?, 'placement')",
             (a["word_id"], is_correct)
         )
-    # Đúng >= 60% câu HSK2 → gợi ý bắt đầu HSK2, ngược lại HSK1
-    hsk2_acc = hsk2_correct / hsk2_total if hsk2_total > 0 else 0
-    recommended = 2 if hsk2_acc >= 0.6 else 1
+    # Climb the HSK1-9 ladder: recommend the highest level where that level's
+    # questions (and every level below it) were answered >=50% correct.
+    recommended = 1
+    for level in range(1, 10):
+        total = per_level_total.get(level, 0)
+        if total == 0:
+            break
+        if per_level_correct.get(level, 0) / total < 0.5:
+            break
+        recommended = level
     conn.execute("UPDATE user_state SET placement_level=? WHERE id=1", (recommended,))
     gamify.touch_streak(conn)
     gamify.award_xp(conn, gamify.XP_PLACEMENT_TEST, 'placement')
