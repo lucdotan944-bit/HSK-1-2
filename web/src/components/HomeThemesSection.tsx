@@ -12,9 +12,12 @@ export default function HomeThemesSection({ initialThemes }: { initialThemes: Th
 
   useEffect(() => {
     let active = true;
-    api.themes(level).then((d) => {
-      if (active) setThemes(d.themes);
-    });
+    api.themes(level).then(
+      (d) => {
+        if (active) setThemes(d.themes);
+      },
+      () => {} // keep showing initialThemes (server-rendered fallback) on failure
+    );
     return () => {
       active = false;
     };

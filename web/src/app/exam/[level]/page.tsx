@@ -7,7 +7,7 @@ import { Card, Button, ProgressBar } from "@/components/ui";
 import { useBadgeToast } from "@/components/BadgeToast";
 import { speak } from "@/lib/speech";
 
-type Stage = "intro" | "exam" | "submitting" | "result";
+type Stage = "intro" | "exam" | "submitting" | "result" | "error";
 
 const SECTION_LABEL: Record<string, string> = {
   listening: "🎧 Nghe",
@@ -46,10 +46,15 @@ export default function ExamRunnerPage({ params }: { params: Promise<{ level: st
       submittedRef.current = true;
       setStage("submitting");
       const duration = Math.round((Date.now() - startedAt.current) / 1000);
-      const r = await api.examSubmit(level, finalAnswers, duration);
-      announce(r.newly_earned_badges);
-      setResult(r);
-      setStage("result");
+      try {
+        const r = await api.examSubmit(level, finalAnswers, duration);
+        announce(r.newly_earned_badges);
+        setResult(r);
+        setStage("result");
+      } catch {
+        submittedRef.current = false;
+        setStage("error");
+      }
     },
     [level, announce]
   );
@@ -68,17 +73,21 @@ export default function ExamRunnerPage({ params }: { params: Promise<{ level: st
   }, [timeLeft, stage]);
 
   async function start() {
-    const data = await api.examStart(level);
-    setQuestions(data.questions);
-    setTimeLeft(data.time_limit_seconds);
-    setIndex(0);
-    setAnswers([]);
-    setAnswered(null);
-    submittedRef.current = false;
-    startedAt.current = Date.now();
-    setStage("exam");
-    const q0 = data.questions[0];
-    if (q0 && q0.section === "listening") speak(q0.simplified);
+    try {
+      const data = await api.examStart(level);
+      setQuestions(data.questions);
+      setTimeLeft(data.time_limit_seconds);
+      setIndex(0);
+      setAnswers([]);
+      setAnswered(null);
+      submittedRef.current = false;
+      startedAt.current = Date.now();
+      setStage("exam");
+      const q0 = data.questions[0];
+      if (q0 && q0.section === "listening") speak(q0.simplified);
+    } catch {
+      setStage("error");
+    }
   }
 
   function answer(choice: string, q: ExamQuestion) {
@@ -128,6 +137,21 @@ export default function ExamRunnerPage({ params }: { params: Promise<{ level: st
 
   if (stage === "submitting") {
     return <p className="text-center text-ink-soft">Đang chấm điểm...</p>;
+  }
+
+  if (stage === "error") {
+    return (
+      <div className="mx-auto max-w-md space-y-4 text-center">
+        <p className="font-display text-xl font-bold">Có lỗi xảy ra</p>
+        <p className="text-ink-soft">Không thể tải hoặc nộp bài thi. Vui lòng thử lại.</p>
+        <div className="flex justify-center gap-2">
+          <Link href="/exam">
+            <Button variant="ghost">Chọn cấp khác</Button>
+          </Link>
+          <Button onClick={start}>Thử lại</Button>
+        </div>
+      </div>
+    );
   }
 
   if (stage === "result" && result) {

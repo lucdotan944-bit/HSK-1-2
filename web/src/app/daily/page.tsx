@@ -25,6 +25,7 @@ export default function DailySessionPage() {
   const { announce, toastNode } = useBadgeToast();
   const [level] = usePreferredLevel(1);
   const [session, setSession] = useState<DailySession | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [reviewIndex, setReviewIndex] = useState(0);
   const [reviewDone, setReviewDone] = useState(false);
   const [listeningRevealed, setListeningRevealed] = useState(false);
@@ -32,9 +33,16 @@ export default function DailySessionPage() {
 
   useEffect(() => {
     let active = true;
-    api.dailySession(level).then((d) => {
-      if (active) setSession(d);
-    });
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset error banner when level changes
+    setLoadError(false);
+    api.dailySession(level).then(
+      (d) => {
+        if (active) setSession(d);
+      },
+      () => {
+        if (active) setLoadError(true);
+      }
+    );
     return () => {
       active = false;
     };
@@ -45,8 +53,13 @@ export default function DailySessionPage() {
 
   async function gradeReview(q: number) {
     const w = reviewWords[reviewIndex];
-    const r = await api.submitReview(w.id, q);
-    announce(r.newly_earned_badges);
+    try {
+      const r = await api.submitReview(w.id, q);
+      announce(r.newly_earned_badges);
+    } catch {
+      setLoadError(true);
+      return;
+    }
     if (reviewIndex + 1 >= reviewWords.length) setReviewDone(true);
     else setReviewIndex((i) => i + 1);
   }
@@ -65,7 +78,9 @@ export default function DailySessionPage() {
         </Link>
       </p>
 
-      {!session ? (
+      {loadError ? (
+        <p className="text-sm text-seal">Có lỗi tải phiên học. Vui lòng thử tải lại trang.</p>
+      ) : !session ? (
         <p className="text-ink-soft">Đang soạn phiên học cho bạn...</p>
       ) : (
         <>

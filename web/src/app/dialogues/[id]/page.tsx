@@ -1,10 +1,18 @@
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { notFound } from "next/navigation";
+import { api, ApiError } from "@/lib/api";
 import DialogueChat from "./DialogueChat";
 
 export default async function DialogueDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { dialogue, lines } = await api.dialogue(id);
+  let result: Awaited<ReturnType<typeof api.dialogue>>;
+  try {
+    result = await api.dialogue(id);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
+    throw e;
+  }
+  const { dialogue, lines } = result;
 
   return (
     <div className="mx-auto max-w-lg space-y-4">

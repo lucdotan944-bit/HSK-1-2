@@ -9,11 +9,17 @@ export function useBadgeToast() {
 
   useEffect(() => {
     if (queue.length && !catalog) {
-      api.badges().then((r) => {
-        const map: Record<string, Badge> = {};
-        r.badges.forEach((b) => (map[b.badge_id] = b));
-        setCatalog(map);
-      });
+      api.badges().then(
+        (r) => {
+          const map: Record<string, Badge> = {};
+          r.badges.forEach((b) => (map[b.badge_id] = b));
+          setCatalog(map);
+        },
+        () => {
+          // Falls back to raw badge id + generic icon in the toast below; not worth retrying per-announce.
+          setCatalog({});
+        }
+      );
     }
   }, [queue.length, catalog]);
 

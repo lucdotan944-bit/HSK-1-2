@@ -9,7 +9,7 @@ import { useBadgeToast } from "@/components/BadgeToast";
 import { speak } from "@/lib/speech";
 import { usePreferredLevel } from "@/lib/level";
 
-type Stage = "loading" | "words" | "quiz" | "done";
+type Stage = "loading" | "words" | "quiz" | "done" | "error";
 
 export default function LessonPage({ params }: { params: Promise<{ themeId: string }> }) {
   const { themeId } = usePromise(params);
@@ -33,13 +33,18 @@ export default function LessonPage({ params }: { params: Promise<{ themeId: stri
     let active = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reset to loading when switching theme/level
     setStage("loading");
-    api.theme(themeId, level).then((data) => {
-      if (!active) return;
-      setThemeName(data.theme.name);
-      setWords(data.words);
-      setWordIndex(0);
-      setStage("words");
-    });
+    api.theme(themeId, level).then(
+      (data) => {
+        if (!active) return;
+        setThemeName(data.theme.name);
+        setWords(data.words);
+        setWordIndex(0);
+        setStage("words");
+      },
+      () => {
+        if (active) setStage("error");
+      }
+    );
     return () => {
       active = false;
     };
@@ -49,7 +54,7 @@ export default function LessonPage({ params }: { params: Promise<{ themeId: stri
     if (stage === "words" && words.length && wordIndex < words.length) {
       const w = words[wordIndex];
       if (!w.repetitions) {
-        api.learnThemeWord(themeId, w.id).then((r) => announce(r.newly_earned_badges));
+        api.learnThemeWord(themeId, w.id).then((r) => announce(r.newly_earned_badges), () => {});
       }
       speak(w.simplified);
     }
@@ -103,6 +108,18 @@ export default function LessonPage({ params }: { params: Promise<{ themeId: stri
   }
 
   if (stage === "loading") return <p className="text-ink-soft">Đang tải...</p>;
+
+  if (stage === "error") {
+    return (
+      <div className="mx-auto max-w-md space-y-4 text-center">
+        <p className="font-display text-xl font-bold">Không tải được chủ đề này</p>
+        <p className="text-ink-soft">Chủ đề có thể không tồn tại, hoặc có lỗi kết nối. Vui lòng thử lại.</p>
+        <Link href="/">
+          <Button>Về trang chủ</Button>
+        </Link>
+      </div>
+    );
+  }
 
   if (stage === "words") {
     const w = words[wordIndex];
