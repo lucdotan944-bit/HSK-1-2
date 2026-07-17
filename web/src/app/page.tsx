@@ -26,7 +26,7 @@ export default async function HomePage() {
         <Card className="flex flex-col items-start gap-3 border-seal/40 bg-seal-soft md:flex-row md:items-center md:justify-between">
           <div>
             <p className="font-display text-lg font-bold">Chưa biết bắt đầu từ đâu?</p>
-            <p className="text-sm text-ink-soft">Làm bài test xếp trình độ 5 phút để hệ thống gợi ý điểm bắt đầu phù hợp.</p>
+            <p className="text-sm text-ink-soft">Làm bài test xếp trình độ (HSK 1-9) để hệ thống gợi ý điểm bắt đầu phù hợp.</p>
           </div>
           <div className="flex shrink-0 gap-2">
             <Link href="/mic-check?next=/placement">

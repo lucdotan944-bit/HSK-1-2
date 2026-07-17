@@ -229,7 +229,8 @@ export const api = {
   dialogues: (level?: number) =>
     jsonFetch<{ dialogues: DialogueSummary[] }>(`/api/dialogues${level ? `?level=${level}` : ""}`),
   dialogue: (id: string) => jsonFetch<{ dialogue: DialogueSummary; lines: DialogueLine[] }>(`/api/dialogues/${id}`),
-  placementQuestions: (count = 15) => jsonFetch<{ questions: QuizChoice[] }>(`/api/quiz/choices/2?count=${count}`),
+  placementQuestions: (perLevel = 2) =>
+    jsonFetch<{ questions: QuizChoice[] }>(`/api/placement/questions?per_level=${perLevel}`),
   submitPlacement: (answers: { word_id: number; hsk_level: number; correct: boolean }[]) =>
     jsonFetch<{ recommended_level: number; accuracy: number; newly_earned_badges: string[] }>(`/api/placement/submit`, {
       method: "POST",

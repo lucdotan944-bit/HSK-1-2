@@ -17,11 +17,10 @@ export default function PlacementPage() {
   const [answers, setAnswers] = useState<{ word_id: number; hsk_level: number; correct: boolean }[]>([]);
   const [answered, setAnswered] = useState<string | null>(null);
   const [resultData, setResultData] = useState<{ recommended_level: number; accuracy: number } | null>(null);
-  const [mapDesc, setMapDesc] = useState<string>("");
 
   async function start() {
     try {
-      const data = await api.placementQuestions(15);
+      const data = await api.placementQuestions();
       setQuestions(data.questions);
       setIndex(0);
       setAnswers([]);
@@ -59,9 +58,6 @@ export default function PlacementPage() {
       const r = await api.submitPlacement(finalAnswers);
       announce(r.newly_earned_badges);
       setResultData(r);
-      const mapping = await api.hskMapping();
-      const row = mapping.mapping.find((m) => m.old === r.recommended_level);
-      setMapDesc(row?.desc ?? "");
       setStage("done");
     } catch {
       setStage("error");
@@ -88,7 +84,8 @@ export default function PlacementPage() {
       <div className="mx-auto max-w-md space-y-4 text-center">
         <h1 className="font-display text-2xl font-bold">Test xếp trình độ</h1>
         <p className="text-ink-soft">
-          15 câu, khoảng 5 phút. Chọn nghĩa đúng cho mỗi từ — hệ thống sẽ gợi ý điểm bắt đầu HSK1 hoặc HSK2 phù hợp.
+          18 câu trải đều HSK 1-9, khoảng 6-7 phút. Chọn nghĩa đúng cho mỗi từ — hệ thống sẽ gợi ý điểm bắt đầu phù hợp
+          trên toàn bộ thang HSK 1-9.
         </p>
         <div className="flex justify-center gap-2">
           <Link href="/mic-check?next=/placement">
@@ -148,7 +145,6 @@ export default function PlacementPage() {
         Bạn đúng {Math.round((resultData?.accuracy ?? 0) * 100)}% — gợi ý bắt đầu ở{" "}
         <b className="text-seal">HSK {resultData?.recommended_level}</b>.
       </p>
-      {mapDesc && <p className="text-sm text-ink-soft">{mapDesc}</p>}
       <Link href="/">
         <Button>Về trang chủ</Button>
       </Link>
