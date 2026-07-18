@@ -618,7 +618,7 @@ def get_theme(theme_id: str, level: Optional[int] = None):
         return JSONResponse({"error": "Theme not found"}, status_code=404)
 
     words = conn.execute("""
-        SELECT w.id, w.simplified, w.pinyin, w.meanings, w.radical,
+        SELECT w.id, w.simplified, w.pinyin, w.meanings, w.hsk_level, w.radical, w.sino_viet,
                uw.repetitions
         FROM theme_words tw
         JOIN words w ON tw.word_id = w.id
@@ -627,18 +627,25 @@ def get_theme(theme_id: str, level: Optional[int] = None):
         ORDER BY tw.sort_order
     """, (theme_id, level, level)).fetchall()
     conn.close()
-    
+
     result = []
     for w in words:
         word_data = {"id": w["id"], "simplified": w["simplified"],
                      "pinyin": w["pinyin"],
                      "meanings": [m.strip() for m in w["meanings"].split(",")],
-                     "radical": w["radical"], "learned": w["repetitions"] >= 1}
+                     "hsk_level": w["hsk_level"],
+                     "radical": w["radical"],
+                     "sino_viet": w["sino_viet"] or "",
+                     "repetitions": w["repetitions"],
+                     "learned": w["repetitions"] >= 1}
         # Get sentence
         sent = get_sentence(w["simplified"])
         if sent:
             word_data["sentence_cn"] = sent[0]
             word_data["sentence_vi"] = sent[1]
+        note = get_context_note(w["simplified"])
+        if note:
+            word_data["context_note"] = note
         result.append(word_data)
     
     return {"theme": dict(t), "words": result}

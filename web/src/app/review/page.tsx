@@ -62,16 +62,15 @@ export default function ReviewPage() {
     }
   }
 
-  async function grade(quality: number) {
+  function grade(quality: number) {
     if (!words) return;
     const w = words[index];
-    try {
-      const r = await api.submitReview(w.id, quality);
-      announce(r.newly_earned_badges);
-    } catch {
-      setError(true);
-      return;
-    }
+    // Optimistic: advance to the next card immediately; the SM-2 submit runs in
+    // the background so a slow backend never blocks the flip-grade rhythm.
+    api.submitReview(w.id, quality).then(
+      (r) => announce(r.newly_earned_badges),
+      () => setError(true)
+    );
     const next = index + 1;
     if (next >= words.length) {
       setWords(null);
@@ -82,6 +81,22 @@ export default function ReviewPage() {
       speak(words[next].simplified);
     }
   }
+
+  // Desktop flow: Space/Enter flips the card, 1-5 picks a grade once flipped.
+  useEffect(() => {
+    if (!words) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === " " || e.key === "Enter") {
+        e.preventDefault();
+        setFlipped((f) => !f);
+      } else if (flipped && e.key >= "1" && e.key <= "5") {
+        grade(GRADES[Number(e.key) - 1].q);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [words, index, flipped]);
 
   if (error) {
     return (
@@ -179,7 +194,7 @@ export default function ReviewPage() {
 
       {flipped ? (
         <div className="grid grid-cols-5 gap-1.5">
-          {GRADES.map((g) => (
+          {GRADES.map((g, i) => (
             <button
               key={g.q}
               onClick={() => grade(g.q)}
@@ -187,11 +202,15 @@ export default function ReviewPage() {
             >
               <span className="text-xl">{g.icon}</span>
               {g.label}
+              <kbd className="hidden font-data text-[10px] text-ink-soft sm:block">{i + 1}</kbd>
             </button>
           ))}
         </div>
       ) : (
-        <p className="text-center text-sm text-ink-soft">Nhớ được không? Chạm vào thẻ để lật.</p>
+        <p className="text-center text-sm text-ink-soft">
+          Nhớ được không? Chạm vào thẻ để lật.
+          <span className="hidden sm:inline"> (phím Space)</span>
+        </p>
       )}
     </div>
   );
