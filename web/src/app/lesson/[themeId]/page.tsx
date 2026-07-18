@@ -61,6 +61,30 @@ export default function LessonPage({ params }: { params: Promise<{ themeId: stri
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, wordIndex, words]);
 
+  // Desktop flow: ←/→ (or Space) moves between word cards; 1-4 answers the quiz.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (stage === "words") {
+        if (e.key === "ArrowRight" || e.key === " " || e.key === "Enter") {
+          e.preventDefault();
+          if (wordIndex >= words.length - 1) startQuiz();
+          else setWordIndex((i) => i + 1);
+        } else if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          setWordIndex((i) => Math.max(0, i - 1));
+        }
+      } else if (stage === "quiz" && !answered) {
+        const q = quiz[quizIndex];
+        if (q && e.key >= "1" && e.key <= String(q.choices.length)) {
+          answer(q.choices[Number(e.key) - 1], q);
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, wordIndex, words, quiz, quizIndex, answered]);
+
   async function startQuiz() {
     setStage("quiz");
     const count = Math.min(5, words.length);
@@ -192,7 +216,7 @@ export default function LessonPage({ params }: { params: Promise<{ themeId: stri
           <p className="font-data text-lg text-jade">{q.pinyin}</p>
         </Card>
         <div className="grid gap-2">
-          {q.choices.map((choice) => {
+          {q.choices.map((choice, i) => {
             const isCorrect = choice === q.correct_meaning;
             const show = answered !== null;
             return (
@@ -200,7 +224,7 @@ export default function LessonPage({ params }: { params: Promise<{ themeId: stri
                 key={choice}
                 onClick={() => answer(choice, q)}
                 disabled={!!answered}
-                className={`rounded-xl border px-4 py-3 text-left font-medium transition-colors ${
+                className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left font-medium transition-colors ${
                   show && isCorrect
                     ? "border-jade bg-jade-soft"
                     : show && choice === answered
@@ -209,6 +233,7 @@ export default function LessonPage({ params }: { params: Promise<{ themeId: stri
                 }`}
               >
                 {choice}
+                <kbd className="hidden font-data text-xs text-ink-soft sm:block">{i + 1}</kbd>
               </button>
             );
           })}
