@@ -68,6 +68,22 @@ def seed_words():
         )
         conn.commit()
 
+    # Sync meanings from the curated source: content fixes (MEANING_OVERRIDES,
+    # CEDICT-artifact cleanup) land as code, and DBs seeded before a fix would
+    # otherwise keep the old text forever. Meanings are not user data, so a
+    # blanket sync is safe.
+    src_meanings = {w[0]: w[2] for w in words}
+    rows = conn.execute("SELECT id, simplified, meanings FROM words").fetchall()
+    meaning_updates = [
+        (src_meanings[r["simplified"]], r["id"])
+        for r in rows
+        if r["simplified"] in src_meanings and src_meanings[r["simplified"]] != r["meanings"]
+    ]
+    if meaning_updates:
+        conn.executemany("UPDATE words SET meanings=? WHERE id=?", meaning_updates)
+        conn.commit()
+        print(f"Synced meanings for {len(meaning_updates)} words from curated source")
+
     # Backfill sino_viet for any word missing it (new rows, or older rows seeded
     # before this word had a mapping). Batched with executemany instead of one
     # UPDATE per row (thousands of round-trips on every restart otherwise).
@@ -404,20 +420,27 @@ def get_related_dialogues(theme_id: str, limit: int = 2):
     return {"dialogues": [dict(r) for r in rows]}
 
 class PlacementSubmit(BaseModel):
-    answers: list  # [{word_id, hsk_level, correct}]
+    answers: list  # [{word_id, hsk_level, correct, section}]
+
+PLACEMENT_SPEAKING_LEVELS = (1, 3, 5, 7, 9)
 
 @app.get("/api/placement/questions")
-def get_placement_questions(per_level: int = 2):
-    """Coverage across all HSK1-9 levels (previously placement only ever
-    drew HSK<=2 words, which meant submit_placement could never recommend
-    higher than HSK2 no matter how advanced the learner was)."""
-    per_level = max(1, min(5, per_level))
+def get_placement_questions(per_level: int = 1):
+    """Full-skill placement across HSK1-9: per level one vocab MC, one
+    listening MC (the frontend plays TTS and hides the hanzi/pinyin until
+    answered), and one reading cloze from a real example sentence; plus a few
+    speaking prompts (scored client-side via ASR, logged to
+    /api/pronunciation/log). Sections come back grouped, not shuffled, so the
+    frontend can introduce each skill once instead of bouncing the learner
+    between mic and multiple-choice."""
+    per_level = max(1, min(3, per_level))
     conn = get_db()
-    questions = []
+    vocab, listening, reading, speaking = [], [], [], []
+    used_ids = set()
     for level in range(1, 10):
         rows = conn.execute(
             "SELECT id, simplified, pinyin, meanings, hsk_level FROM words WHERE hsk_level = ? ORDER BY RANDOM() LIMIT ?",
-            (level, per_level)
+            (level, per_level * 2)
         ).fetchall()
         if not rows:
             continue
@@ -426,16 +449,49 @@ def get_placement_questions(per_level: int = 2):
             (level,)
         ).fetchall()
         distractor_pool = [r["meanings"].split(",")[0].strip() for r in pool_rows]
-        questions.extend(_generate_choices(r, distractor_pool) for r in rows)
-    random.shuffle(questions)
+        for r in rows[:per_level]:
+            q = _generate_choices(r, distractor_pool)
+            q["section"] = "vocab"
+            vocab.append(q)
+            used_ids.add(r["id"])
+        for r in rows[per_level:per_level * 2]:
+            q = _generate_choices(r, distractor_pool)
+            q["section"] = "listening"
+            listening.append(q)
+            used_ids.add(r["id"])
+        cloze_pool = conn.execute(
+            "SELECT id, simplified FROM words WHERE hsk_level = ? ORDER BY RANDOM() LIMIT 40",
+            (level,)
+        ).fetchall()
+        cloze_word_pool = [r["simplified"] for r in cloze_pool]
+        for _ in range(per_level):
+            cq = _exam_cloze_question(cloze_pool, cloze_word_pool, used_ids)
+            if not cq:
+                break
+            cq["section"] = "reading"
+            cq["hsk_level"] = level
+            reading.append(cq)
+            used_ids.add(cq["word_id"])
+    for level in PLACEMENT_SPEAKING_LEVELS:
+        r = conn.execute(
+            "SELECT id, simplified, pinyin, meanings, hsk_level FROM words WHERE hsk_level = ? AND LENGTH(simplified) >= 2 ORDER BY RANDOM() LIMIT 1",
+            (level,)
+        ).fetchone()
+        if r:
+            speaking.append({
+                "word_id": r["id"], "simplified": r["simplified"], "pinyin": r["pinyin"],
+                "correct_meaning": r["meanings"].split(",")[0].strip(),
+                "choices": [], "hsk_level": r["hsk_level"], "section": "speaking",
+            })
     conn.close()
-    return {"questions": questions}
+    return {"questions": vocab + listening + reading + speaking}
 
 @app.post("/api/placement/submit")
 def submit_placement(data: PlacementSubmit):
     conn = get_db()
     per_level_total = {}
     per_level_correct = {}
+    section_stats = {}
     total_correct = 0
     for a in data.answers:
         is_correct = 1 if a.get("correct") else 0
@@ -444,10 +500,23 @@ def submit_placement(data: PlacementSubmit):
         if level is not None:
             per_level_total[level] = per_level_total.get(level, 0) + 1
             per_level_correct[level] = per_level_correct.get(level, 0) + is_correct
-        conn.execute(
-            "INSERT INTO quiz_results (word_id, correct, quiz_type) VALUES (?, ?, 'placement')",
-            (a["word_id"], is_correct)
-        )
+        section = a.get("section") or "vocab"
+        st = section_stats.setdefault(section, {"total": 0, "correct": 0})
+        st["total"] += 1
+        st["correct"] += is_correct
+        # Listening answers feed the listening skill score; speaking is already
+        # logged into pronunciation_attempts by the frontend, so don't double-log.
+        if section == "listening":
+            quiz_type = "listening"
+        elif section == "speaking":
+            quiz_type = None
+        else:
+            quiz_type = "placement"
+        if quiz_type:
+            conn.execute(
+                "INSERT INTO quiz_results (word_id, correct, quiz_type) VALUES (?, ?, ?)",
+                (a["word_id"], is_correct, quiz_type)
+            )
     # Climb the HSK1-9 ladder: recommend the highest level where that level's
     # questions (and every level below it) were answered >=50% correct.
     recommended = 1
@@ -465,8 +534,13 @@ def submit_placement(data: PlacementSubmit):
     conn.commit()
     conn.close()
     accuracy = total_correct / len(data.answers) if data.answers else 0
+    skills = {
+        s: {"correct": v["correct"], "total": v["total"],
+            "pct": round(100 * v["correct"] / v["total"])}
+        for s, v in section_stats.items() if v["total"]
+    }
     return {"recommended_level": recommended, "accuracy": round(accuracy, 2),
-            "newly_earned_badges": newly_earned}
+            "skills": skills, "newly_earned_badges": newly_earned}
 
 @app.get("/api/quiz/{hsk_level}")
 def get_quiz(hsk_level: int, count: int = 10):

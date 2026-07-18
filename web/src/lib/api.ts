@@ -82,6 +82,24 @@ export type QuizChoice = {
   choices: string[];
 };
 
+export type PlacementSection = "vocab" | "listening" | "reading" | "speaking";
+
+// vocab/listening/speaking questions carry the QuizChoice fields; reading is a
+// cloze built from a real example sentence.
+export type PlacementQuestion = QuizChoice & {
+  section: PlacementSection;
+  sentence_blanked?: string;
+  sentence_vi?: string;
+  correct_word?: string;
+};
+
+export type PlacementResult = {
+  recommended_level: number;
+  accuracy: number;
+  skills: Record<string, { correct: number; total: number; pct: number }>;
+  newly_earned_badges: string[];
+};
+
 export type DialogueSummary = {
   id: string;
   title: string;
@@ -229,10 +247,10 @@ export const api = {
   dialogues: (level?: number) =>
     jsonFetch<{ dialogues: DialogueSummary[] }>(`/api/dialogues${level ? `?level=${level}` : ""}`),
   dialogue: (id: string) => jsonFetch<{ dialogue: DialogueSummary; lines: DialogueLine[] }>(`/api/dialogues/${id}`),
-  placementQuestions: (perLevel = 2) =>
-    jsonFetch<{ questions: QuizChoice[] }>(`/api/placement/questions?per_level=${perLevel}`),
-  submitPlacement: (answers: { word_id: number; hsk_level: number; correct: boolean }[]) =>
-    jsonFetch<{ recommended_level: number; accuracy: number; newly_earned_badges: string[] }>(`/api/placement/submit`, {
+  placementQuestions: (perLevel = 1) =>
+    jsonFetch<{ questions: PlacementQuestion[] }>(`/api/placement/questions?per_level=${perLevel}`),
+  submitPlacement: (answers: { word_id: number; hsk_level: number; correct: boolean; section: PlacementSection }[]) =>
+    jsonFetch<PlacementResult>(`/api/placement/submit`, {
       method: "POST",
       body: JSON.stringify({ answers }),
     }),
