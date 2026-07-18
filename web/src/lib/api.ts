@@ -11,6 +11,7 @@ const SERVER_API_BASE = process.env.API_ORIGIN || "http://127.0.0.1:8000";
 
 export class ApiError extends Error {
   status: number;
+  detail?: string;
   constructor(path: string, status: number) {
     super(`API ${path} failed: ${status}`);
     this.status = status;
@@ -24,7 +25,12 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
     cache: "no-store",
   });
-  if (!res.ok) throw new ApiError(path, res.status);
+  if (!res.ok) {
+    const err = new ApiError(path, res.status);
+    // Surface the backend's user-facing message ({"error": "..."}) when present.
+    err.detail = await res.json().then((b) => b?.error, () => undefined);
+    throw err;
+  }
   return res.json();
 }
 
@@ -201,6 +207,20 @@ export type ConversationStart = {
   node: ConversationNode;
 };
 
+export type AiChatSuggestion = { cn: string; pinyin: string; vi: string };
+export type AiChatCorrection = { corrected_cn: string; explanation_vi: string };
+export type AiChatReply = {
+  reply_cn: string;
+  reply_pinyin: string;
+  reply_vi: string;
+  correction: AiChatCorrection | null;
+  suggestions: AiChatSuggestion[];
+  demo: boolean;
+  remaining_today: number | null;
+  newly_earned_badges?: string[];
+};
+export type AiChatStatus = { enabled: boolean; model: string; limit: number; remaining_today: number };
+
 export const api = {
   stats: () => jsonFetch<Stats>("/api/stats"),
   gamifyState: () => jsonFetch<GamifyState>("/api/gamify/state"),
@@ -267,6 +287,12 @@ export const api = {
   hskMapping: () =>
     jsonFetch<{ mapping: { old: number; new_range: [number, number]; desc: string }[] }>("/api/hsk-mapping"),
   dailySession: (level?: number) => jsonFetch<DailySession>(`/api/daily-session${level ? `?level=${level}` : ""}`),
+  aiChatStatus: () => jsonFetch<AiChatStatus>("/api/ai-chat/status"),
+  aiChatRespond: (messages: { role: "user" | "assistant"; content: string }[], hskLevel: number, topicId?: string) =>
+    jsonFetch<AiChatReply>(`/api/ai-chat/respond`, {
+      method: "POST",
+      body: JSON.stringify({ messages, hsk_level: hskLevel, topic_id: topicId || null }),
+    }),
   conversation: (scenarioId: string) => jsonFetch<ConversationStart>(`/api/conversation/${scenarioId}`),
   conversationRespond: (scenarioId: string, nodeId: string, choiceId: string) =>
     jsonFetch<{ node_id: string; node: ConversationNode; is_end: boolean; newly_earned_badges: string[] }>(

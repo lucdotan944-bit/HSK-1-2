@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from database import get_db, init_db
 from sm2 import sm2
+import ai_chat
 import gamify
 import tts
 from seed_data import get_words, get_hsk1, get_hsk2, get_sentence, get_sino_viet, get_context_note, get_dialogues, THEMES, get_theme_words, auto_categorize_theme_words, BADGES
@@ -970,6 +971,68 @@ def get_daily_session(level: Optional[int] = None):
             "conversation_hsk_level": conversation_hsk_level,
         },
     }
+
+# ---- AI CONVERSATION PRACTICE (Claude) ----
+
+class AiChatRequest(BaseModel):
+    messages: list  # [{role: "user"|"assistant", content: str}]
+    hsk_level: int = 1
+    topic_id: Optional[str] = None
+
+def _ai_chat_topic_label(topic_id):
+    if topic_id and topic_id in THEMES:
+        return THEMES[topic_id]["name"]
+    return "Trò chuyện tự do"
+
+@app.get("/api/ai-chat/status")
+def ai_chat_status():
+    conn = get_db()
+    used = ai_chat.get_usage_today(conn)
+    conn.close()
+    return {
+        "enabled": ai_chat.is_enabled(),
+        "model": ai_chat.AI_CHAT_MODEL,
+        "limit": ai_chat.DAILY_LIMIT,
+        "remaining_today": max(0, ai_chat.DAILY_LIMIT - used),
+    }
+
+@app.post("/api/ai-chat/respond")
+def ai_chat_respond(data: AiChatRequest):
+    hsk_level = max(1, min(9, data.hsk_level))
+    topic_label = _ai_chat_topic_label(data.topic_id)
+    if not isinstance(data.messages, list) or len(data.messages) > 60:
+        return JSONResponse({"error": "Hội thoại quá dài, hãy bắt đầu phiên mới."}, status_code=400)
+
+    if not ai_chat.is_enabled():
+        # Demo mode: scripted turns, no quota consumed.
+        reply = ai_chat.demo_respond(data.messages)
+        return {**reply, "demo": True, "remaining_today": None}
+
+    conn = get_db()
+    used = ai_chat.get_usage_today(conn)
+    if used >= ai_chat.DAILY_LIMIT:
+        conn.close()
+        return JSONResponse(
+            {"error": f"Bạn đã dùng hết {ai_chat.DAILY_LIMIT} lượt trò chuyện AI hôm nay. Hẹn gặp lại ngày mai nhé!"},
+            status_code=429,
+        )
+    conn.close()
+
+    try:
+        reply = ai_chat.respond(data.messages, hsk_level, topic_label)
+    except ai_chat.AiChatError as e:
+        return JSONResponse({"error": e.message_vi}, status_code=e.status_code)
+
+    conn = get_db()
+    ai_chat.increment_usage(conn)
+    remaining = max(0, ai_chat.DAILY_LIMIT - ai_chat.get_usage_today(conn))
+    gamify.touch_streak(conn)
+    gamify.award_xp(conn, gamify.XP_AI_CHAT_TURN, 'ai_chat')
+    newly_earned = gamify.check_badges(conn)
+    conn.commit()
+    conn.close()
+    return {**reply, "demo": False, "remaining_today": remaining,
+            "newly_earned_badges": newly_earned}
 
 # ---- SCRIPTED CONVERSATION PRACTICE ----
 

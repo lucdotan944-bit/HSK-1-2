@@ -37,6 +37,17 @@ export default function DialoguesPage() {
           đổi cấp ở Trang chủ
         </Link>
       </p>
+      <Link href="/ai-chat">
+        <Card className="flex items-center justify-between gap-3 border-jade transition-transform hover:-translate-y-0.5">
+          <div>
+            <p className="font-semibold">💬 Luyện nói với AI</p>
+            <p className="text-sm text-ink-soft">
+              Trò chuyện tự do bằng tiếng Trung theo trình độ của bạn — AI sửa lỗi và gợi ý câu trả lời.
+            </p>
+          </div>
+          <span className="shrink-0 rounded-full bg-jade px-3 py-1.5 text-sm font-semibold text-white">Thử ngay</span>
+        </Card>
+      </Link>
       {loadError ? (
         <p className="text-sm text-seal">Không tải được danh sách hội thoại. Vui lòng thử lại.</p>
       ) : shown.length === 0 ? (

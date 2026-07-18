@@ -175,6 +175,11 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE IF NOT EXISTS ai_chat_usage (
+            day TEXT PRIMARY KEY,
+            count INTEGER NOT NULL DEFAULT 0
+        );
+
         CREATE UNIQUE INDEX IF NOT EXISTS idx_writing_char ON writing_practice(character);
         CREATE INDEX IF NOT EXISTS idx_exam_sessions_level ON exam_sessions(hsk_level, created_at);
         CREATE INDEX IF NOT EXISTS idx_xp_log_created ON xp_log(created_at);

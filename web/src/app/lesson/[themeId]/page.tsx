@@ -264,9 +264,14 @@ export default function LessonPage({ params }: { params: Promise<{ themeId: stri
           </div>
         </Card>
       )}
-      <Link href="/">
-        <Button>Về trang chủ</Button>
-      </Link>
+      <div className="flex justify-center gap-2">
+        <Link href={`/ai-chat?topic=${themeId}`}>
+          <Button variant="secondary">💬 Luyện nói với AI</Button>
+        </Link>
+        <Link href="/">
+          <Button>Về trang chủ</Button>
+        </Link>
+      </div>
     </div>
   );
 }
