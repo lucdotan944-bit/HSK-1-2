@@ -3,6 +3,7 @@ HSK 1 & 2 vocabulary data (HSK 3.0 standard)
 with Vietnamese translations for Vietnamese learners
 """
 import os
+import re
 import sqlite3
 import json
 
@@ -304,6 +305,271 @@ HSK2_WORDS = [
 
 _bulk_words_cache = None
 
+# Hand-curated Vietnamese meanings for bulk-imported words whose dictionary-derived
+# meanings were wrong for learners: CC-CEDICT artifacts ("LT:個|个[ge4]", "biến thể
+# của..."), sino-viet readings pasted as meanings ("ba ba", "kỵ xa"), slang/rare
+# senses listed first (吧 "quán bar", 药 "lá của cây diên vĩ"), or missing the
+# HSK-level sense entirely (着 the aspect particle, 重 "nặng"). First sense listed
+# is always the one an HSK 1-2 learner needs. Applied on top of the JSON in
+# load_bulk_words(), so regenerating data/hsk_vocab_full.json keeps these fixes.
+MEANING_OVERRIDES = {
+    # --- HSK 1 ---
+    "爱好": "sở thích, yêu thích",
+    "爸爸": "bố, ba, cha",
+    "白": "trắng, màu trắng, sáng",
+    "班": "lớp, lớp học, ca làm việc, tổ, nhóm",
+    "吧": "nhé, nhỉ, đi (trợ từ cuối câu: đề nghị, phỏng đoán)",
+    "帮": "giúp, giúp đỡ",
+    "包": "túi, bao, gói, bọc",
+    "包子": "bánh bao",
+    "杯": "cốc, ly, chén (lượng từ đồ uống)",
+    "北": "phía bắc, hướng bắc",
+    "本": "quyển, cuốn (lượng từ cho sách vở), vốn, gốc",
+    "别": "đừng, chớ, khác",
+    "病": "bệnh, ốm, bị bệnh",
+    "比": "so với, hơn (dùng trong câu so sánh), so sánh, tỉ số",
+    "车": "xe, xe cộ",
+    "差": "kém, tệ, thiếu, khác biệt",
+    "床": "giường",
+    "从": "từ (chỉ điểm xuất phát: 从…到…), theo",
+    "次": "lần, lượt (lượng từ), thứ",
+    "打": "đánh, đập, chơi (bóng), gọi (điện thoại)",
+    "第": "thứ (tiền tố số thứ tự: 第一 thứ nhất)",
+    "地": "trợ từ kết cấu (sau trạng ngữ, trước động từ), đất, mặt đất (dì)",
+    "弟弟": "em trai",
+    "电": "điện",
+    "东": "phía đông, hướng đông",
+    "东西": "đồ, đồ vật, thứ",
+    "儿子": "con trai (con của mình)",
+    "饭": "cơm, bữa cơm, bữa ăn",
+    "分": "phút, điểm (số), xu, chia, phân chia",
+    "干": "làm (gàn: 干活), khô (gān: 干净)",
+    "歌": "bài hát",
+    "哥哥": "anh trai",
+    "个": "cái, chiếc (lượng từ thông dụng nhất)",
+    "跟": "với, cùng, theo, gót chân",
+    "关": "đóng, tắt, cửa ải",
+    "关上": "đóng lại, tắt (đèn, cửa)",
+    "国": "nước, quốc gia",
+    "好玩儿": "vui, thú vị, hay ho",
+    "后": "sau, phía sau",
+    "后天": "ngày kia, ngày mốt",
+    "花": "hoa, bông hoa, tiêu (tiền)",
+    "回": "về, trở về, lần (lượng từ), trả lời",
+    "鸡蛋": "trứng gà",
+    "间": "gian, phòng, căn (lượng từ), giữa, khoảng",
+    "教学楼": "tòa nhà học, giảng đường",
+    "姐姐": "chị gái",
+    "就": "thì, liền, ngay, chính là",
+    "考": "thi, kiểm tra",
+    "课": "bài học, tiết học, môn học",
+    "口": "miệng, nhân khẩu (lượng từ cho người trong nhà)",
+    "块": "đồng (tiền, khẩu ngữ: 三块钱), miếng, cục, tảng (lượng từ)",
+    "老人": "người già, cụ già",
+    "老师": "giáo viên, thầy giáo, cô giáo",
+    "里": "trong, bên trong, dặm (500 mét)",
+    "楼": "tòa nhà, lầu, tầng",
+    "路": "đường, con đường, tuyến (xe)",
+    "妈妈": "mẹ, má",
+    "毛": "hào (1/10 tệ), lông, tóc",
+    "没": "không, chưa (phủ định: 没有)",
+    "没事儿": "không sao, không có gì, rảnh",
+    "妹妹": "em gái",
+    "们": "(hậu tố số nhiều: 我们 chúng tôi, 你们 các bạn)",
+    "面条儿": "mì, mì sợi",
+    "哪": "nào, cái nào, đâu",
+    "那": "kia, đó, cái kia, vậy thì",
+    "奶": "sữa, cho bú",
+    "奶奶": "bà nội",
+    "男孩儿": "bé trai, cậu bé",
+    "男": "nam, đàn ông, con trai",
+    "您": "ngài, ông, bà (cách gọi \"bạn\" kính trọng)",
+    "女": "nữ, phụ nữ, con gái",
+    "女儿": "con gái (con của mình)",
+    "女孩儿": "bé gái, cô bé",
+    "票": "vé, phiếu",
+    "跑": "chạy, chạy trốn",
+    "前天": "hôm kia (hai ngày trước)",
+    "球": "quả bóng, bóng",
+    "肉": "thịt",
+    "山": "núi, ngọn núi",
+    "商场": "trung tâm thương mại, cửa hàng bách hóa",
+    "上": "trên, phía trên, lên, đi (học, làm: 上学, 上班), trước (上个月)",
+    "生病": "bị ốm, bị bệnh",
+    "生气": "tức giận, giận, cáu",
+    "手": "tay, bàn tay",
+    "树": "cây, cây cối",
+    "岁": "tuổi (lượng từ chỉ tuổi: 五岁 5 tuổi)",
+    "她们": "họ, các cô ấy (nữ)",
+    "天": "ngày, trời, bầu trời",
+    "同学": "bạn học, bạn cùng lớp",
+    "先": "trước, trước tiên, đầu tiên",
+    "先生": "ông, ngài, quý ông, chồng",
+    "洗手间": "nhà vệ sinh, toilet",
+    "笑": "cười, mỉm cười",
+    "小孩儿": "trẻ con, đứa trẻ",
+    "小姐": "cô, quý cô (xưng hô lịch sự)",
+    "小朋友": "bạn nhỏ, các cháu (gọi trẻ em)",
+    "小学生": "học sinh tiểu học",
+    "星期天": "Chủ nhật",
+    "行": "được, ổn (xíng: 行!), đi, hàng, dòng (háng)",
+    "学生": "học sinh, sinh viên",
+    "页": "trang (sách)",
+    "一下儿": "một chút, một lát, thử xem (làm gì đó nhẹ nhàng, nhanh)",
+    "一点儿": "một chút, một ít",
+    "用": "dùng, sử dụng",
+    "有的": "có (người, cái)..., một số",
+    "右": "bên phải, phía phải",
+    "雨": "mưa",
+    "元": "tệ, đồng (đơn vị tiền: 十元 10 tệ), nguyên",
+    "早": "sớm, buổi sáng",
+    "早饭": "bữa sáng, cơm sáng",
+    "再": "lại, lần nữa, rồi mới",
+    "站": "đứng, trạm, bến, ga",
+    "找": "tìm, tìm kiếm, trả lại (tiền thừa)",
+    "这": "này, cái này",
+    "着": "đang... (trợ từ chỉ trạng thái đang diễn ra: 坐着 đang ngồi)",
+    "正": "đúng, chính, đang (正在)",
+    "重": "nặng (zhòng), quan trọng, lặp lại (chóng)",
+    "子": "con, hạt, (hậu tố danh từ: 桌子, 椅子)",
+    "左": "bên trái, phía trái",
+    "坐": "ngồi, đi (xe, tàu, máy bay: 坐车)",
+    # --- HSK 2 ---
+    "背": "cõng, đeo, vác (bēi), lưng, học thuộc lòng (bèi)",
+    "笔记本": "sổ tay, vở ghi, máy tính xách tay (laptop)",
+    "遍": "lần, lượt (lượng từ cho hành động trọn vẹn: 再说一遍), khắp",
+    "草": "cỏ, bãi cỏ",
+    "超市": "siêu thị",
+    "船": "thuyền, tàu thủy",
+    "词": "từ, từ ngữ",
+    "蛋": "trứng",
+    "道": "con đường, đạo lý, lượng từ (món ăn, đề bài, cánh cửa)",
+    "灯": "đèn",
+    "店": "cửa hàng, tiệm, quán",
+    "队": "đội, hàng ngũ",
+    "份": "phần, suất, bản (lượng từ: báo, quà, hồ sơ)",
+    "干活儿": "làm việc, lao động",
+    "公共汽车": "xe buýt",
+    "公交车": "xe buýt",
+    "狗": "chó, con chó",
+    "海": "biển, đại dương",
+    "河": "sông, con sông",
+    "湖": "hồ",
+    "画": "vẽ, bức tranh",
+    "鸡": "gà, con gà",
+    "加": "cộng, thêm, thêm vào",
+    "假": "giả (jiǎ), kỳ nghỉ (jià: 放假)",
+    "交": "nộp, giao, kết (bạn: 交朋友)",
+    "脚": "bàn chân, chân",
+    "街": "phố, đường phố",
+    "节": "ngày lễ (节日), tiết (học), đốt, lượng từ (tiết học, toa tàu)",
+    "借": "mượn, vay, cho mượn",
+    "举": "giơ lên, nâng, nêu (ví dụ: 举例)",
+    "句": "câu (lượng từ cho câu nói: 一句话)",
+    "快点儿": "nhanh lên, mau lên",
+    "脸": "mặt, khuôn mặt",
+    "留": "ở lại, giữ lại, để lại (lời nhắn), du học (留学)",
+    "留学生": "du học sinh",
+    "老朋友": "bạn cũ, bạn lâu năm",
+    "绿": "xanh lá cây, màu xanh lục",
+    "猫": "mèo, con mèo",
+    "米": "gạo, mét (đơn vị đo)",
+    "鸟": "chim, con chim",
+    "碰": "chạm, đụng, va, tình cờ gặp",
+    "瓶": "chai, lọ, bình",
+    "墙": "tường, bức tường",
+    "骑车": "đi xe đạp, đạp xe",
+    "人数": "số người",
+    "生词": "từ mới",
+    "市": "thành phố, chợ",
+    "提": "xách, nêu ra, đề cập, nhắc đến",
+    "腿": "chân, đùi",
+    "碗": "bát, chén, lượng từ (một bát cơm: 一碗饭)",
+    "万": "vạn, mười nghìn",
+    "喂": "a lô (nghe điện thoại), này, cho ăn",
+    "洗衣机": "máy giặt",
+    "笑话儿": "chuyện cười, truyện cười",
+    "鞋": "giày, đôi giày",
+    "信": "thư, lá thư, tin, tin tưởng",
+    "雪": "tuyết",
+    "眼": "mắt, con mắt",
+    "药": "thuốc, dược phẩm",
+    "夜": "đêm, ban đêm",
+    "音乐会": "buổi hòa nhạc",
+    "有空儿": "rảnh, có thời gian rảnh",
+    "鱼": "cá, con cá",
+    "院": "sân, viện (bệnh viện, học viện)",
+    "云": "mây, đám mây",
+    "咱": "chúng ta, chúng mình (gồm cả người nghe)",
+    "占": "chiếm, chiếm giữ",
+    "纸": "giấy, tờ giấy",
+    "字典": "từ điển",
+    "座": "chỗ ngồi, tòa, ngọn, quả (lượng từ: núi, tòa nhà)",
+}
+
+# CC-CEDICT artifacts to strip from bulk meanings: measure-word refs ("LT:個|个[ge4]"),
+# variant-of notes ("biến thể của 幫|帮[bang1]"), cross-references, and slang senses.
+_SEG_DROP_PREFIXES = ("biến thể", "dùng trong", "viết tắt của", "xem ", "lt:", "lượng từ:")
+_SEG_DROP_SUBSTRINGS = ("tiếng lóng", "dương vật", "mại dâm", "cắm sừng", "gái điếm")
+_CJK_RE = re.compile(r"[一-鿿]")
+_PINYIN_REF_RE = re.compile(r"\[[a-zA-Z0-9üū:·\- ]+\]")
+
+
+def _split_top_level(text):
+    """Split a CEDICT-style meanings string on commas that are outside parentheses."""
+    segs, buf, depth = [], [], 0
+    for ch in text:
+        if ch in "(（":
+            depth += 1
+        elif ch in ")）":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            segs.append("".join(buf).strip())
+            buf = []
+        else:
+            buf.append(ch)
+    if buf:
+        segs.append("".join(buf).strip())
+    return [s for s in segs if s]
+
+
+def clean_bulk_meanings(meanings, sino_viet=""):
+    """Strip dictionary artifacts from a bulk-imported meanings string and put
+    plain senses before register-marked ("(văn học)...") ones. Returns "" if
+    nothing survives — callers should then fall back (base word / sino_viet)."""
+    plain, marked = [], []
+    for seg in _split_top_level(meanings):
+        low = seg.lower()
+        if _CJK_RE.search(seg) or _PINYIN_REF_RE.search(seg):
+            continue
+        if low.startswith(_SEG_DROP_PREFIXES) or any(s in low for s in _SEG_DROP_SUBSTRINGS):
+            continue
+        (marked if seg.startswith("(") else plain).append(seg)
+    seen, out = set(), []
+    for seg in plain + marked:
+        key = seg.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(seg)
+    return ", ".join(out[:5])
+
+
+def _bulk_meanings(w, base_meanings):
+    """Final meanings for one bulk word: hand override > cleaned > er-hua base >
+    sino_viet > original with CJK/pinyin refs stripped."""
+    simplified = w["simplified"]
+    if simplified in MEANING_OVERRIDES:
+        return MEANING_OVERRIDES[simplified]
+    cleaned = clean_bulk_meanings(w["meanings"], w.get("sino_viet", ""))
+    if cleaned:
+        return cleaned
+    if simplified.endswith("儿"):
+        base = base_meanings.get(simplified[:-1])
+        if base:
+            return base
+    return w.get("sino_viet") or _PINYIN_REF_RE.sub("", _CJK_RE.sub("", w["meanings"])).strip(" ,;|")
+
+
 def load_bulk_words():
     """HSK 3-9 words (plus any HSK1/2 words beyond the hand-curated set below),
     generated offline by scripts/build_hsk_vocab.py from public HSK 3.0 word
@@ -314,8 +580,15 @@ def load_bulk_words():
         if os.path.exists(_BULK_VOCAB_PATH):
             with open(_BULK_VOCAB_PATH, encoding="utf-8") as f:
                 data = json.load(f)
+            # First pass so er-hua words (面条儿) can fall back to their base
+            # word's cleaned meaning (面条) in the second pass.
+            base_meanings = {
+                w["simplified"]: MEANING_OVERRIDES.get(w["simplified"])
+                or clean_bulk_meanings(w["meanings"], w.get("sino_viet", ""))
+                for w in data
+            }
             _bulk_words_cache = [
-                (w["simplified"], w["pinyin"], w["meanings"], w["hsk_level"], "")
+                (w["simplified"], w["pinyin"], _bulk_meanings(w, base_meanings), w["hsk_level"], "")
                 for w in data
             ]
         else:
@@ -346,7 +619,7 @@ EXAMPLE_SENTENCES = {
 
     # Numbers & Quantity
     "一": ["我有一个苹果。", "Tôi có một quả táo."],
-    "二": ["我有两个妹妹。", "Tôi có hai em gái."],
+    "二": ["我今年二十岁。", "Năm nay tôi hai mươi tuổi."],
     "三": ["我们有三本书。", "Chúng tôi có ba quyển sách."],
     "四": ["桌子上有四杯茶。", "Trên bàn có bốn tách trà."],
     "五": ["我买了五个面包。", "Tôi đã mua năm cái bánh mì."],
@@ -723,13 +996,13 @@ DIALOGUES = {
         "hsk_level": 2,
         "lines": [
             ("A", "你每天几点起床？", "Nǐ měi tiān jǐ diǎn qǐchuáng?", "Mỗi ngày bạn dậy mấy giờ?"),
-            ("B", "我每天六点半起床。", "Wǒ měi tiān liù diǎn bàn qǐchuáng.", "Tôi dậy 6:30."),
+            ("B", "我每天六点半起床。", "Wǒ měi tiān liù diǎn bàn qǐchuáng.", "Tôi dậy lúc 6 giờ rưỡi."),
             ("A", "真早！你吃早饭吗？", "Zhēn zǎo! Nǐ chī zǎofàn ma?", "Sớm thật! Ăn sáng không?"),
             ("B", "吃，我吃面包和牛奶。", "Chī, wǒ chī miànbāo hé niúnǎi.", "Có, tôi ăn bánh mì sữa."),
             ("A", "你几点上班？", "Nǐ jǐ diǎn shàngbān?", "Mấy giờ đi làm?"),
-            ("B", "九点上班，五点下班。", "Jiǔ diǎn shàngbān, wǔ diǎn xiàbān.", "9h đi làm, 5h tan."),
+            ("B", "九点上班，五点下班。", "Jiǔ diǎn shàngbān, wǔ diǎn xiàbān.", "9 giờ đi làm, 5 giờ tan làm."),
             ("A", "晚上你做什么？", "Wǎnshang nǐ zuò shénme?", "Tối làm gì?"),
-            ("B", "我看电视或者看书。十一点睡觉。", "Wǒ kàn diànshì huòzhě kàn shū. Shíyī diǎn shuìjiào.", "Xem tivi hoặc đọc sách. 11h ngủ."),
+            ("B", "我看电视或者看书。十一点睡觉。", "Wǒ kàn diànshì huòzhě kàn shū. Shíyī diǎn shuìjiào.", "Xem tivi hoặc đọc sách. 11 giờ đi ngủ."),
         ]
     },
     "weather_chat": {
@@ -738,10 +1011,10 @@ DIALOGUES = {
         "hsk_level": 1,
         "lines": [
             ("A", "今天天气怎么样？", "Jīntiān tiānqì zěnme yàng?", "Hôm nay thời tiết thế nào?"),
-            ("B", "今天很热，三十度。", "Jīntiān hěn rè, sānshí dù.", "Hôm nay rất nóng, 30°."),
+            ("B", "今天很热，三十度。", "Jīntiān hěn rè, sānshí dù.", "Hôm nay rất nóng, 30 độ."),
             ("A", "明天呢？", "Míngtiān ne?", "Ngày mai?"),
             ("B", "明天会下雨，很冷。", "Míngtiān huì xià yǔ, hěn lěng.", "Ngày mai mưa, lạnh."),
-            ("A", "那我明天不去了。", "Nà wǒ míngtiān bú qù le.", "Thế mai tôi ko đi."),
+            ("A", "那我明天不去了。", "Nà wǒ míngtiān bú qù le.", "Thế thì mai tôi không đi nữa."),
         ]
     },
     "phone_call": {
@@ -750,11 +1023,11 @@ DIALOGUES = {
         "hsk_level": 2,
         "lines": [
             ("A", "喂？", "Wèi?", "A lô?"),
-            ("B", "喂，你好，请问是小王吗？", "Wèi, nǐ hǎo, qǐngwèn shì Xiǎo Wáng ma?", "A lô, cho hỏi Tiểu Vương phải ko?"),
+            ("B", "喂，你好，请问是小王吗？", "Wèi, nǐ hǎo, qǐngwèn shì Xiǎo Wáng ma?", "A lô, xin hỏi có phải Tiểu Vương không?"),
             ("A", "是我。什么事？", "Shì wǒ. Shénme shì?", "Tôi đây. Có việc gì?"),
-            ("B", "星期天你有时间吗？", "Xīngqítiān nǐ yǒu shíjiān ma?", "Chủ nhật có thời gian ko?"),
+            ("B", "星期天你有时间吗？", "Xīngqítiān nǐ yǒu shíjiān ma?", "Chủ nhật bạn có thời gian không?"),
             ("A", "有。我们一起去公园？", "Yǒu. Wǒmen yìqǐ qù gōngyuán?", "Có. Cùng đi công viên nhé?"),
-            ("B", "好啊！下午两点见。", "Hǎo a! Xiàwǔ liǎng diǎn jiàn.", "Hay! 2h chiều gặp nhau."),
+            ("B", "好啊！下午两点见。", "Hǎo a! Xiàwǔ liǎng diǎn jiàn.", "Hay quá! 2 giờ chiều gặp nhé."),
         ]
     },
     "making_friends": {
@@ -763,12 +1036,12 @@ DIALOGUES = {
         "hsk_level": 2,
         "lines": [
             ("A", "你从哪儿来？", "Nǐ cóng nǎr lái?", "Bạn từ đâu đến?"),
-            ("B", "我从越南来，我是河内人。", "Wǒ cóng Yuènán lái, wǒ shì Hénèi rén.", "Từ VN, tôi người HN."),
-            ("A", "我是中国人。你在学什么？", "Wǒ shì Zhōngguó rén. Nǐ zài xué shénme?", "Tôi là người TQ. Bạn học gì?"),
-            ("B", "我在学汉语，我喜欢中文。", "Wǒ zài xué Hànyǔ, wǒ xǐhuān Zhōngwén.", "Học tiếng Trung, tôi thích."),
-            ("A", "为什么学中文？", "Nǐ wèishénme xué Zhōngwén?", "Sao lại học?"),
-            ("B", "因为中文很有意思，而且我想去中国工作。", "Yīnwèi Zhōngwén hěn yǒuyìsi, érqiě wǒ xiǎng qù Zhōngguó gōngzuò.", "Vì TQ thú vị, muốn sang TQ làm việc."),
-            ("A", "加油！你会学得很好的。", "Jiāyóu! Nǐ huì xué dé hěn hǎo de.", "Cố lên! Sẽ học tốt."),
+            ("B", "我从越南来，我是河内人。", "Wǒ cóng Yuènán lái, wǒ shì Hénèi rén.", "Tôi đến từ Việt Nam, tôi là người Hà Nội."),
+            ("A", "我是中国人。你在学什么？", "Wǒ shì Zhōngguó rén. Nǐ zài xué shénme?", "Tôi là người Trung Quốc. Bạn đang học gì?"),
+            ("B", "我在学汉语，我喜欢中文。", "Wǒ zài xué Hànyǔ, wǒ xǐhuān Zhōngwén.", "Tôi đang học Hán ngữ, tôi thích tiếng Trung."),
+            ("A", "你为什么学中文？", "Nǐ wèishénme xué Zhōngwén?", "Vì sao bạn học tiếng Trung?"),
+            ("B", "因为中文很有意思，而且我想去中国工作。", "Yīnwèi Zhōngwén hěn yǒuyìsi, érqiě wǒ xiǎng qù Zhōngguó gōngzuò.", "Vì tiếng Trung rất thú vị, hơn nữa tôi muốn sang Trung Quốc làm việc."),
+            ("A", "加油！你会学得很好的。", "Jiāyóu! Nǐ huì xué dé hěn hǎo de.", "Cố lên! Bạn sẽ học tốt thôi."),
         ]
     },
     "at_hospital": {
@@ -779,7 +1052,7 @@ DIALOGUES = {
             ("A", "医生，我不舒服。", "Yīshēng, wǒ bù shūfu.", "Bác sĩ, tôi không khỏe."),
             ("B", "哪里不舒服？", "Nǎlǐ bù shūfu?", "Đau chỗ nào?"),
             ("A", "我头疼，也有一点儿发烧。", "Wǒ tóu téng, yě yǒu yìdiǎnr fāshāo.", "Đau đầu, hơi sốt."),
-            ("B", "三十八度。要多喝水，好好休息。", "Sānshíbā dù. Yào duō hē shuǐ, hǎohao xiūxi.", "Sốt 38°. Uống nhiều nước, nghỉ ngơi."),
+            ("B", "三十八度。要多喝水，好好休息。", "Sānshíbā dù. Yào duō hē shuǐ, hǎohao xiūxi.", "38 độ. Cần uống nhiều nước, nghỉ ngơi cho tốt."),
             ("A", "好的，谢谢医生！", "Hǎo de, xièxie yīshēng!", "Vâng, cảm ơn bác sĩ!"),
         ]
     },
