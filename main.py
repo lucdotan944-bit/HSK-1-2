@@ -922,16 +922,16 @@ def get_hsk_mapping():
 def get_daily_session(level: Optional[int] = None):
     """Lắp ráp phiên học 5 phút/ngày: ôn từ (SM-2), nghe, nói, hội thoại ngắn.
     Ưu tiên nội dung liên quan tới kỹ năng yếu nhất, nhưng luôn đủ 4 khối.
-    `level`: cấp HSK người dùng chọn ở Trang chủ (tuỳ chọn) — mọi khối, kể cả
-    ôn từ, giới hạn về HSK <= cấp đó (cùng ngữ nghĩa với trang Ôn tập), để
-    người mới không bị rơi vào từ/hội thoại quá khó."""
+    `level`: cấp HSK người dùng chọn ở Trang chủ (tuỳ chọn) — cả 4 khối lấy
+    nội dung ĐÚNG cấp đó (chọn HSK 6 thì ôn/nghe/nói/hội thoại đều HSK 6);
+    khối nghe/hội thoại rơi về cấp gần dưới nếu cấp đó không có dữ liệu."""
     conn = get_db()
     skills, weakest, _ = _compute_skill_breakdown(conn)
 
     review_rows = conn.execute("""
         SELECT w.id, w.simplified, w.pinyin, w.meanings, w.hsk_level, w.sino_viet
         FROM words w JOIN user_words uw ON w.id = uw.word_id
-        WHERE uw.next_review <= datetime('now') AND (? IS NULL OR w.hsk_level <= ?)
+        WHERE uw.next_review <= datetime('now') AND (? IS NULL OR w.hsk_level = ?)
         ORDER BY uw.next_review ASC, uw.repetitions ASC LIMIT 5
     """, (level, level)).fetchall()
     review_block = [dict(r) for r in review_rows]
@@ -939,19 +939,27 @@ def get_daily_session(level: Optional[int] = None):
     listen_row = conn.execute("""
         SELECT dl.dialogue_id, dl.simplified, dl.pinyin, dl.vietnamese, d.hsk_level
         FROM dialogue_lines dl JOIN dialogues d ON dl.dialogue_id = d.id
-        WHERE (? IS NULL OR d.hsk_level <= ?)
+        WHERE (? IS NULL OR d.hsk_level = ?)
         ORDER BY RANDOM() LIMIT 1
     """, (level, level)).fetchone()
+    if not listen_row and level is not None:
+        listen_row = conn.execute("""
+            SELECT dl.dialogue_id, dl.simplified, dl.pinyin, dl.vietnamese, d.hsk_level
+            FROM dialogue_lines dl JOIN dialogues d ON dl.dialogue_id = d.id
+            WHERE d.hsk_level <= ? ORDER BY d.hsk_level DESC, RANDOM() LIMIT 1
+        """, (level,)).fetchone()
     listening_block = dict(listen_row) if listen_row else None
 
     speak_row = conn.execute("""
         SELECT id, simplified, pinyin, meanings, hsk_level FROM words
-        WHERE (? IS NULL OR hsk_level <= ?)
+        WHERE (? IS NULL OR hsk_level = ?)
         ORDER BY RANDOM() LIMIT 1
     """, (level, level)).fetchone()
     speaking_block = dict(speak_row) if speak_row else None
 
     scenario_ids = [
+        sid for sid, s in CONVERSATIONS.items() if level is None or s["hsk_level"] == level
+    ] or [
         sid for sid, s in CONVERSATIONS.items() if level is None or s["hsk_level"] <= level
     ] or list(CONVERSATIONS.keys())
     import random

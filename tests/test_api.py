@@ -90,13 +90,13 @@ def test_pronunciation_log_rejects_invalid_score(client):
     assert res.status_code == 422
 
 
-def test_daily_session_review_respects_selected_level(client):
-    res = client.get("/api/daily-session?level=1")
-    assert res.status_code == 200
-    review = res.json()["blocks"]["review"]
-    assert len(review) > 0
-    assert all(w["hsk_level"] <= 1 for w in review)
-
-    res9 = client.get("/api/daily-session?level=9")
-    assert res9.status_code == 200
-    assert len(res9.json()["blocks"]["review"]) > 0
+def test_daily_session_blocks_match_selected_level_exactly(client):
+    for level in (1, 6):
+        res = client.get(f"/api/daily-session?level={level}")
+        assert res.status_code == 200
+        blocks = res.json()["blocks"]
+        assert len(blocks["review"]) > 0
+        assert all(w["hsk_level"] == level for w in blocks["review"])
+        assert blocks["listening"]["hsk_level"] == level
+        assert blocks["speaking"]["hsk_level"] == level
+        assert blocks["conversation_hsk_level"] == level
