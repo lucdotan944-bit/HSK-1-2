@@ -18,7 +18,7 @@ export default function HskLevelSelector({
       <div className="flex-1">
         <p className="font-display text-base font-bold">Trình độ HSK bạn muốn học</p>
         <p className="mt-0.5 text-sm text-ink-soft">
-          Chọn cấp độ — Từ vựng, Ôn tập, Luyện viết, Thi thử và Chủ đề sẽ tự động đồng bộ theo.
+          Chọn cấp độ — Học 5 phút, Từ vựng, Ôn tập, Luyện viết, Thi thử và Chủ đề sẽ tự động đồng bộ theo.
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-3">

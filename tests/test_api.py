@@ -88,3 +88,15 @@ def test_pronunciation_log_rejects_invalid_score(client):
         json={"target_text": "你好", "score": "not-a-real-score"},
     )
     assert res.status_code == 422
+
+
+def test_daily_session_review_respects_selected_level(client):
+    res = client.get("/api/daily-session?level=1")
+    assert res.status_code == 200
+    review = res.json()["blocks"]["review"]
+    assert len(review) > 0
+    assert all(w["hsk_level"] <= 1 for w in review)
+
+    res9 = client.get("/api/daily-session?level=9")
+    assert res9.status_code == 200
+    assert len(res9.json()["blocks"]["review"]) > 0
