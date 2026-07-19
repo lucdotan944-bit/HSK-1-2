@@ -922,19 +922,18 @@ def get_hsk_mapping():
 def get_daily_session(level: Optional[int] = None):
     """Lắp ráp phiên học 5 phút/ngày: ôn từ (SM-2), nghe, nói, hội thoại ngắn.
     Ưu tiên nội dung liên quan tới kỹ năng yếu nhất, nhưng luôn đủ 4 khối.
-    `level`: cấp HSK người dùng đang chọn (tuỳ chọn) — giới hạn khối nghe/nói/
-    hội thoại về <= cấp đó, để người mới không bị rơi vào từ/hội thoại quá
-    khó. Khối ôn tập (review) vẫn không lọc theo level vì phản ánh đúng
-    lịch sử SM-2 thực tế của người học, không phải cấp đang duyệt."""
+    `level`: cấp HSK người dùng chọn ở Trang chủ (tuỳ chọn) — mọi khối, kể cả
+    ôn từ, giới hạn về HSK <= cấp đó (cùng ngữ nghĩa với trang Ôn tập), để
+    người mới không bị rơi vào từ/hội thoại quá khó."""
     conn = get_db()
     skills, weakest, _ = _compute_skill_breakdown(conn)
 
     review_rows = conn.execute("""
         SELECT w.id, w.simplified, w.pinyin, w.meanings, w.hsk_level, w.sino_viet
         FROM words w JOIN user_words uw ON w.id = uw.word_id
-        WHERE uw.next_review <= datetime('now')
+        WHERE uw.next_review <= datetime('now') AND (? IS NULL OR w.hsk_level <= ?)
         ORDER BY uw.next_review ASC, uw.repetitions ASC LIMIT 5
-    """).fetchall()
+    """, (level, level)).fetchall()
     review_block = [dict(r) for r in review_rows]
 
     listen_row = conn.execute("""
