@@ -60,10 +60,18 @@ def test_real_mode_daily_cap_returns_429(client, monkeypatch):
     from datetime import date
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-a-real-key")
+    # Quota giờ tính theo user — lấy user của session cookie hiện tại (được
+    # tạo tự động ở các request POST trước đó trong module này).
+    token = client.cookies.get("hn_session")
+    assert token, "expected earlier POSTs to have created a guest session"
     conn = database.get_db()
+    user_id = conn.execute(
+        "SELECT user_id FROM sessions WHERE token=?", (token,)
+    ).fetchone()["user_id"]
     conn.execute(
-        "INSERT INTO ai_chat_usage (day, count) VALUES (?, ?) ON CONFLICT(day) DO UPDATE SET count = ?",
-        (date.today().isoformat(), ai_chat.DAILY_LIMIT, ai_chat.DAILY_LIMIT),
+        "INSERT INTO ai_chat_usage (user_id, day, count) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id, day) DO UPDATE SET count = excluded.count",
+        (user_id, date.today().isoformat(), ai_chat.DAILY_LIMIT),
     )
     conn.commit()
     conn.close()

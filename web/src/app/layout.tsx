@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Be_Vietnam_Pro, Noto_Serif_SC, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import AppShell from "@/components/AppShell";
+import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 
 const bodySans = Be_Vietnam_Pro({
   variable: "--font-body",
@@ -47,6 +48,10 @@ export const metadata: Metadata = {
     title: TITLE,
     description: DESCRIPTION,
   },
+  icons: {
+    icon: [{ url: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
 };
 
 export const viewport: Viewport = {
@@ -64,6 +69,7 @@ export default function RootLayout({
       className={`${bodySans.variable} ${displaySerif.variable} ${dataMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-paper text-ink">
+        <ServiceWorkerRegister />
         <AppShell>{children}</AppShell>
       </body>
     </html>

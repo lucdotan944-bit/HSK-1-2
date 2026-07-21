@@ -147,18 +147,19 @@ def demo_respond(messages):
     return dict(turn)
 
 
-def get_usage_today(conn):
+def get_usage_today(conn, user_id):
     row = conn.execute(
-        "SELECT count FROM ai_chat_usage WHERE day = ?", (date.today().isoformat(),)
+        "SELECT count FROM ai_chat_usage WHERE user_id = ? AND day = ?",
+        (user_id, date.today().isoformat()),
     ).fetchone()
     return row["count"] if row else 0
 
 
-def increment_usage(conn):
+def increment_usage(conn, user_id):
     conn.execute(
-        """INSERT INTO ai_chat_usage (day, count) VALUES (?, 1)
-           ON CONFLICT(day) DO UPDATE SET count = count + 1""",
-        (date.today().isoformat(),),
+        """INSERT INTO ai_chat_usage (user_id, day, count) VALUES (?, ?, 1)
+           ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1""",
+        (user_id, date.today().isoformat()),
     )
 
 

@@ -5,14 +5,15 @@ import random
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Literal, Optional
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from pydantic import BaseModel
 
 from database import get_db, init_db
 from sm2 import sm2
 import ai_chat
+import auth
 import gamify
 import tts
 from seed_data import get_words, get_hsk1, get_hsk2, get_sentence, get_sino_viet, get_context_note, get_dialogues, THEMES, get_theme_words, auto_categorize_theme_words, BADGES
@@ -47,8 +48,14 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 def seed_user_state():
+    """User id=1 là "khách kế thừa": giữ toàn bộ tiến độ từ thời DB single-user
+    (trước khi có hệ thống tài khoản). Không gắn với session nào — chỉ tồn tại
+    để dữ liệu cũ có chủ hợp lệ."""
     conn = get_db()
-    conn.execute("INSERT OR IGNORE INTO user_state (id) VALUES (1)")
+    conn.execute(
+        "INSERT OR IGNORE INTO users (id, is_guest, display_name) VALUES (1, 1, 'Khách (dữ liệu cũ)')"
+    )
+    conn.execute("INSERT OR IGNORE INTO user_state (user_id) VALUES (1)")
     conn.commit()
     conn.close()
 
@@ -94,10 +101,9 @@ def seed_words():
         conn.executemany("UPDATE words SET sino_viet=? WHERE id=?", sv_updates)
         conn.commit()
 
-    # Auto-add to user_words for any word missing a review-state row. Batched
-    # the same way — one executemany instead of one INSERT per word.
-    all_ids = [w[0] for w in conn.execute("SELECT id FROM words").fetchall()]
-    conn.executemany("INSERT OR IGNORE INTO user_words (word_id) VALUES (?)", [(i,) for i in all_ids])
+    # (Không seed user_words nữa: từ khi multi-user, trạng thái SM-2 tạo lazy
+    # cho từng user khi họ ôn/học từ đó lần đầu — từ chưa có dòng nghĩa là
+    # "chưa học, đến hạn ngay".)
     conn.commit()
     conn.close()
     if new_words:
@@ -166,14 +172,218 @@ def seed_dialogues():
     if new_ids:
         print(f"Seeded {len(new_ids)} new dialogues ({len(dialogues)} total)")
 
+# ---- AUTH ----
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    display_name: str = ""
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/register")
+def auth_register(data: RegisterRequest, request: Request, response: Response):
+    email = data.email.strip().lower()
+    if not auth.EMAIL_RE.match(email):
+        return JSONResponse({"error": "Email không hợp lệ."}, status_code=400)
+    if len(data.password) < 8:
+        return JSONResponse({"error": "Mật khẩu cần ít nhất 8 ký tự."}, status_code=400)
+
+    conn = get_db()
+    if conn.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
+        conn.close()
+        return JSONResponse({"error": "Email này đã được đăng ký. Hãy đăng nhập."}, status_code=409)
+
+    pw_hash = auth.hash_password(data.password)
+    display_name = data.display_name.strip()[:60]
+
+    # Nếu đang là khách (trừ khách kế thừa id=1) thì nâng cấp tại chỗ — giữ
+    # nguyên toàn bộ XP/streak/SRS đã tích luỹ trước khi đăng ký.
+    uid = auth.session_user_id(conn, request)
+    upgraded = False
+    if uid and uid != 1:
+        row = conn.execute("SELECT is_guest FROM users WHERE id=?", (uid,)).fetchone()
+        if row and row["is_guest"]:
+            conn.execute(
+                "UPDATE users SET email=?, password_hash=?, display_name=?, is_guest=0 WHERE id=?",
+                (email, pw_hash, display_name, uid),
+            )
+            upgraded = True
+    if not upgraded:
+        cur = conn.execute(
+            "INSERT INTO users (email, password_hash, display_name, is_guest) VALUES (?, ?, ?, 0)",
+            (email, pw_hash, display_name),
+        )
+        uid = cur.lastrowid
+        auth.ensure_user_state(conn, uid)
+    token = auth.create_session(conn, uid)
+    conn.commit()
+    conn.close()
+    auth.set_session_cookie(response, token)
+    return {"ok": True, "email": email, "display_name": display_name, "kept_progress": upgraded}
+
+
+@app.post("/api/auth/login")
+def auth_login(data: LoginRequest, response: Response):
+    email = data.email.strip().lower()
+    conn = get_db()
+    row = conn.execute(
+        "SELECT id, password_hash, display_name FROM users WHERE email=?", (email,)
+    ).fetchone()
+    if not row or not row["password_hash"] or not auth.verify_password(data.password, row["password_hash"]):
+        conn.close()
+        return JSONResponse({"error": "Email hoặc mật khẩu không đúng."}, status_code=401)
+    token = auth.create_session(conn, row["id"])
+    conn.commit()
+    conn.close()
+    auth.set_session_cookie(response, token)
+    return {"ok": True, "email": email, "display_name": row["display_name"]}
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request, response: Response):
+    token = request.cookies.get(auth.SESSION_COOKIE)
+    if token:
+        conn = get_db()
+        conn.execute("DELETE FROM sessions WHERE token=?", (token,))
+        conn.commit()
+        conn.close()
+    auth.clear_session_cookie(response)
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def auth_me(user_id: Optional[int] = Depends(auth.optional_user_id)):
+    if user_id is None:
+        return {"authenticated": False, "is_guest": True, "email": None,
+                "display_name": "", "google_enabled": auth.google_enabled()}
+    conn = get_db()
+    row = conn.execute(
+        "SELECT email, display_name, is_guest FROM users WHERE id=?", (user_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return {"authenticated": False, "is_guest": True, "email": None,
+                "display_name": "", "google_enabled": auth.google_enabled()}
+    return {
+        "authenticated": not row["is_guest"],
+        "is_guest": bool(row["is_guest"]),
+        "email": row["email"],
+        "display_name": row["display_name"] or "",
+        "google_enabled": auth.google_enabled(),
+    }
+
+
+@app.get("/api/auth/google/start")
+def auth_google_start(request: Request):
+    if not auth.google_enabled():
+        return JSONResponse({"error": "Đăng nhập Google chưa được cấu hình."}, status_code=503)
+    import secrets as _secrets
+    from urllib.parse import urlencode
+    state = _secrets.token_urlsafe(24)
+    params = urlencode({
+        "client_id": auth.GOOGLE_CLIENT_ID,
+        "redirect_uri": f"{auth.APP_ORIGIN}/api/auth/google/callback",
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+    })
+    resp = RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{params}")
+    resp.set_cookie("hn_oauth_state", state, max_age=600, httponly=True,
+                    samesite="lax", secure=auth.COOKIE_SECURE, path="/")
+    return resp
+
+
+@app.get("/api/auth/google/callback")
+def auth_google_callback(request: Request, code: str = "", state: str = ""):
+    if not auth.google_enabled():
+        return JSONResponse({"error": "Đăng nhập Google chưa được cấu hình."}, status_code=503)
+    if not code or not state or state != request.cookies.get("hn_oauth_state"):
+        return RedirectResponse("/login?error=google")
+    import httpx
+    try:
+        token_res = httpx.post("https://oauth2.googleapis.com/token", data={
+            "code": code,
+            "client_id": auth.GOOGLE_CLIENT_ID,
+            "client_secret": auth.GOOGLE_CLIENT_SECRET,
+            "redirect_uri": f"{auth.APP_ORIGIN}/api/auth/google/callback",
+            "grant_type": "authorization_code",
+        }, timeout=15).json()
+        userinfo = httpx.get(
+            "https://openidconnect.googleapis.com/v1/userinfo",
+            headers={"Authorization": f"Bearer {token_res['access_token']}"},
+            timeout=15,
+        ).json()
+    except Exception:
+        logger.exception("Google OAuth exchange failed")
+        return RedirectResponse("/login?error=google")
+
+    sub = userinfo.get("sub")
+    email = (userinfo.get("email") or "").lower()
+    name = userinfo.get("name") or ""
+    if not sub:
+        return RedirectResponse("/login?error=google")
+
+    conn = get_db()
+    row = conn.execute("SELECT id FROM users WHERE google_sub=?", (sub,)).fetchone()
+    if row:
+        uid = row["id"]
+    else:
+        by_email = conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone() if email else None
+        if by_email:
+            uid = by_email["id"]
+            conn.execute("UPDATE users SET google_sub=?, is_guest=0 WHERE id=?", (sub, uid))
+        else:
+            # Nâng cấp khách hiện tại nếu có, giữ tiến độ — như đăng ký email.
+            uid = auth.session_user_id(conn, request)
+            guest_ok = False
+            if uid and uid != 1:
+                g = conn.execute("SELECT is_guest FROM users WHERE id=?", (uid,)).fetchone()
+                if g and g["is_guest"]:
+                    conn.execute(
+                        "UPDATE users SET google_sub=?, email=?, display_name=?, is_guest=0 WHERE id=?",
+                        (sub, email or None, name[:60], uid),
+                    )
+                    guest_ok = True
+            if not guest_ok:
+                cur = conn.execute(
+                    "INSERT INTO users (email, google_sub, display_name, is_guest) VALUES (?, ?, ?, 0)",
+                    (email or None, sub, name[:60]),
+                )
+                uid = cur.lastrowid
+                auth.ensure_user_state(conn, uid)
+    token = auth.create_session(conn, uid)
+    conn.commit()
+    conn.close()
+    resp = RedirectResponse("/account")
+    auth.set_session_cookie(resp, token)
+    resp.delete_cookie("hn_oauth_state", path="/")
+    return resp
+
+
 # ---- API Routes ----
 
+def _empty_gamify_state():
+    return {"xp": 0, "current_streak": 0, "longest_streak": 0,
+            "placement_level": 0, "badges": []}
+
+
 @app.get("/api/gamify/state")
-def get_gamify_state():
+def get_gamify_state(user_id: Optional[int] = Depends(auth.optional_user_id)):
+    if user_id is None:
+        return _empty_gamify_state()
     conn = get_db()
-    state = conn.execute("SELECT * FROM user_state WHERE id=1").fetchone()
-    earned = conn.execute("SELECT badge_id, earned_at FROM badges_earned").fetchall()
+    state = conn.execute("SELECT * FROM user_state WHERE user_id=?", (user_id,)).fetchone()
+    earned = conn.execute(
+        "SELECT badge_id, earned_at FROM badges_earned WHERE user_id=?", (user_id,)
+    ).fetchall()
     conn.close()
+    if not state:
+        return _empty_gamify_state()
     badges = []
     for b in earned:
         meta = BADGES.get(b["badge_id"], {})
@@ -193,10 +403,14 @@ def get_gamify_state():
     }
 
 @app.get("/api/badges")
-def list_badges():
-    conn = get_db()
-    earned = {r["badge_id"] for r in conn.execute("SELECT badge_id FROM badges_earned").fetchall()}
-    conn.close()
+def list_badges(user_id: Optional[int] = Depends(auth.optional_user_id)):
+    earned = set()
+    if user_id is not None:
+        conn = get_db()
+        earned = {r["badge_id"] for r in conn.execute(
+            "SELECT badge_id FROM badges_earned WHERE user_id=?", (user_id,)
+        ).fetchall()}
+        conn.close()
     return {"badges": [
         {"badge_id": bid, "name": b["name"], "icon": b["icon"], "desc": b["desc"],
          "earned": bid in earned}
@@ -204,16 +418,18 @@ def list_badges():
     ]}
 
 @app.get("/api/stats")
-def get_stats():
+def get_stats(user_id: Optional[int] = Depends(auth.optional_user_id)):
+    uid = user_id if user_id is not None else -1  # -1: không khớp dòng nào → mọi từ "chưa học, đến hạn"
     conn = get_db()
 
-    # Total + due words per HSK level (1-9)
+    # Total + due words per HSK level (1-9). Từ chưa có dòng user_words của
+    # user này = chưa học bao giờ → tính là đến hạn (SM-2 lazy-create).
     level_rows = conn.execute("""
         SELECT w.hsk_level as level, COUNT(*) as total,
-               SUM(CASE WHEN uw.next_review <= datetime('now') THEN 1 ELSE 0 END) as due
-        FROM words w JOIN user_words uw ON uw.word_id = w.id
+               SUM(CASE WHEN uw.next_review IS NULL OR uw.next_review <= datetime('now') THEN 1 ELSE 0 END) as due
+        FROM words w LEFT JOIN user_words uw ON uw.word_id = w.id AND uw.user_id = ?
         GROUP BY w.hsk_level ORDER BY w.hsk_level
-    """).fetchall()
+    """, (uid,)).fetchall()
     by_level = [{"level": r["level"], "total": r["total"], "due": r["due"] or 0} for r in level_rows]
     by_level_map = {r["level"]: r for r in by_level}
     hsk1 = by_level_map.get(1, {}).get("total", 0)
@@ -222,9 +438,11 @@ def get_stats():
     due_hsk2 = by_level_map.get(2, {}).get("due", 0)
 
     # Review stats
-    due = conn.execute("SELECT COUNT(*) FROM user_words WHERE next_review <= datetime('now')").fetchone()[0]
-    total = conn.execute("SELECT COUNT(*) FROM user_words").fetchone()[0]
-    learned = conn.execute("SELECT COUNT(*) FROM user_words WHERE repetitions >= 5").fetchone()[0]
+    due = sum(r["due"] for r in by_level)
+    total = sum(r["total"] for r in by_level)
+    learned = conn.execute(
+        "SELECT COUNT(*) FROM user_words WHERE repetitions >= 5 AND user_id=?", (uid,)
+    ).fetchone()[0]
 
     dlg_count = conn.execute("SELECT COUNT(*) FROM dialogues").fetchone()[0]
 
@@ -238,19 +456,24 @@ def get_stats():
     }
 
 @app.get("/api/review/{hsk_level}")
-def get_review_words(hsk_level: int, limit: int = 20):
+def get_review_words(hsk_level: int, limit: int = 20,
+                     user_id: Optional[int] = Depends(auth.optional_user_id)):
+    uid = user_id if user_id is not None else -1
     hsk_level = max(1, min(9, hsk_level))
     limit = max(1, min(200, limit))
     conn = get_db()
+    # Từ có dòng SM-2 quá hạn xếp trước (ôn), từ chưa học (không có dòng —
+    # next_review NULL) xếp sau (học mới).
     rows = conn.execute("""
         SELECT w.id, w.simplified, w.pinyin, w.meanings, w.hsk_level, w.radical, w.sino_viet,
-               uw.repetitions, uw.easiness, uw.next_review
+               COALESCE(uw.repetitions, 0) as repetitions, COALESCE(uw.easiness, 2.5) as easiness,
+               uw.next_review
         FROM words w
-        JOIN user_words uw ON w.id = uw.word_id
-        WHERE w.hsk_level <= ? AND uw.next_review <= datetime('now')
-        ORDER BY uw.next_review ASC, uw.repetitions ASC
+        LEFT JOIN user_words uw ON w.id = uw.word_id AND uw.user_id = ?
+        WHERE w.hsk_level <= ? AND (uw.next_review IS NULL OR uw.next_review <= datetime('now'))
+        ORDER BY (uw.next_review IS NULL) ASC, uw.next_review ASC, COALESCE(uw.repetitions, 0) ASC
         LIMIT ?
-    """, (hsk_level, limit)).fetchall()
+    """, (uid, hsk_level, limit)).fetchall()
     conn.close()
     
     words = []
@@ -280,39 +503,46 @@ class ReviewSubmit(BaseModel):
     quality: int  # 0-5 SM-2 quality
 
 @app.post("/api/review")
-def submit_review(data: ReviewSubmit):
+def submit_review(data: ReviewSubmit, user_id: int = Depends(auth.current_user_id)):
     conn = get_db()
-    row = conn.execute(
-        "SELECT * FROM user_words WHERE word_id = ?", (data.word_id,)
-    ).fetchone()
-    
-    if not row:
+    if not conn.execute("SELECT 1 FROM words WHERE id = ?", (data.word_id,)).fetchone():
+        conn.close()
         return JSONResponse({"error": "Word not found"}, status_code=404)
-    
+
+    # Trạng thái SM-2 hiện tại của user với từ này (chưa có dòng = từ mới).
+    row = conn.execute(
+        "SELECT repetitions, easiness, interval FROM user_words WHERE user_id = ? AND word_id = ?",
+        (user_id, data.word_id)
+    ).fetchone()
+    prev_reps = row["repetitions"] if row else 0
+    prev_ef = row["easiness"] if row else 2.5
+    prev_interval = row["interval"] if row else 0
+
     quality = max(0, min(5, data.quality))
-    reps, ef, interval = sm2(
-        quality, row["repetitions"], row["easiness"], row["interval"]
-    )
-    
+    reps, ef, interval = sm2(quality, prev_reps, prev_ef, prev_interval)
+
     # Use UTC to match SQLite's datetime('now'), which every due-date query compares against.
     next_review = (datetime.utcnow() + timedelta(days=interval)).strftime("%Y-%m-%d %H:%M:%S")
-    
+
+    correct = 1 if quality >= 3 else 0
     conn.execute("""
-        UPDATE user_words 
-        SET repetitions=?, easiness=?, interval=?, next_review=?,
-            total_reviews=total_reviews+1,
-            correct_count=correct_count+?
-        WHERE word_id=?
-    """, (reps, ef, interval, next_review, 1 if quality >= 3 else 0, data.word_id))
-    
+        INSERT INTO user_words (user_id, word_id, repetitions, easiness, interval, next_review, total_reviews, correct_count)
+        VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+        ON CONFLICT(user_id, word_id) DO UPDATE SET
+            repetitions=excluded.repetitions, easiness=excluded.easiness,
+            interval=excluded.interval, next_review=excluded.next_review,
+            total_reviews=user_words.total_reviews+1,
+            correct_count=user_words.correct_count+excluded.correct_count
+    """, (user_id, data.word_id, reps, ef, interval, next_review, correct))
+
     # Log quiz result
     conn.execute(
-        "INSERT INTO quiz_results (word_id, correct, quiz_type) VALUES (?, ?, 'review')",
-        (data.word_id, 1 if quality >= 3 else 0)
+        "INSERT INTO quiz_results (user_id, word_id, correct, quiz_type) VALUES (?, ?, ?, 'review')",
+        (user_id, data.word_id, correct)
     )
-    gamify.touch_streak(conn)
-    gamify.award_xp(conn, gamify.XP_REVIEW_CORRECT if quality >= 3 else gamify.XP_REVIEW_WRONG, 'review')
-    newly_earned = gamify.check_badges(conn)
+    gamify.touch_streak(conn, user_id)
+    gamify.award_xp(conn, user_id, gamify.XP_REVIEW_CORRECT if quality >= 3 else gamify.XP_REVIEW_WRONG, 'review')
+    newly_earned = gamify.check_badges(conn, user_id)
     conn.commit()
     conn.close()
 
@@ -380,20 +610,20 @@ class ThemeQuizResult(BaseModel):
     results: list  # [{word_id, correct}]
 
 @app.post("/api/quiz/theme-result")
-def submit_theme_quiz(data: ThemeQuizResult):
+def submit_theme_quiz(data: ThemeQuizResult, user_id: int = Depends(auth.current_user_id)):
     conn = get_db()
     correct_count = 0
     for r in data.results:
         is_correct = 1 if r.get("correct") else 0
         correct_count += is_correct
         conn.execute(
-            "INSERT INTO quiz_results (word_id, correct, quiz_type) VALUES (?, ?, 'theme_quiz')",
-            (r["word_id"], is_correct)
+            "INSERT INTO quiz_results (user_id, word_id, correct, quiz_type) VALUES (?, ?, ?, 'theme_quiz')",
+            (user_id, r["word_id"], is_correct)
         )
-    gamify.touch_streak(conn)
-    gamify.award_xp(conn, correct_count * gamify.XP_QUIZ_CORRECT, 'theme_quiz')
-    gamify.award_xp(conn, gamify.XP_THEME_QUIZ_COMPLETE, 'theme_quiz_complete')
-    newly_earned = gamify.check_badges(conn)
+    gamify.touch_streak(conn, user_id)
+    gamify.award_xp(conn, user_id, correct_count * gamify.XP_QUIZ_CORRECT, 'theme_quiz')
+    gamify.award_xp(conn, user_id, gamify.XP_THEME_QUIZ_COMPLETE, 'theme_quiz_complete')
+    newly_earned = gamify.check_badges(conn, user_id)
     conn.commit()
     conn.close()
     return {"ok": True, "correct": correct_count, "total": len(data.results),
@@ -488,7 +718,7 @@ def get_placement_questions(per_level: int = 1):
     return {"questions": vocab + listening + reading + speaking}
 
 @app.post("/api/placement/submit")
-def submit_placement(data: PlacementSubmit):
+def submit_placement(data: PlacementSubmit, user_id: int = Depends(auth.current_user_id)):
     conn = get_db()
     per_level_total = {}
     per_level_correct = {}
@@ -515,8 +745,8 @@ def submit_placement(data: PlacementSubmit):
             quiz_type = "placement"
         if quiz_type:
             conn.execute(
-                "INSERT INTO quiz_results (word_id, correct, quiz_type) VALUES (?, ?, ?)",
-                (a["word_id"], is_correct, quiz_type)
+                "INSERT INTO quiz_results (user_id, word_id, correct, quiz_type) VALUES (?, ?, ?, ?)",
+                (user_id, a["word_id"], is_correct, quiz_type)
             )
     # Climb the HSK1-9 ladder: recommend the highest level where that level's
     # questions (and every level below it) were answered >=50% correct.
@@ -528,10 +758,11 @@ def submit_placement(data: PlacementSubmit):
         if per_level_correct.get(level, 0) / total < 0.5:
             break
         recommended = level
-    conn.execute("UPDATE user_state SET placement_level=? WHERE id=1", (recommended,))
-    gamify.touch_streak(conn)
-    gamify.award_xp(conn, gamify.XP_PLACEMENT_TEST, 'placement')
-    newly_earned = gamify.check_badges(conn)
+    gamify.ensure_state(conn, user_id)
+    conn.execute("UPDATE user_state SET placement_level=? WHERE user_id=?", (recommended, user_id))
+    gamify.touch_streak(conn, user_id)
+    gamify.award_xp(conn, user_id, gamify.XP_PLACEMENT_TEST, 'placement')
+    newly_earned = gamify.check_badges(conn, user_id)
     conn.commit()
     conn.close()
     accuracy = total_correct / len(data.answers) if data.answers else 0
@@ -572,19 +803,25 @@ class QuizSubmit(BaseModel):
     quiz_type: str = "quiz"  # 'quiz' | 'listening'
 
 @app.post("/api/quiz")
-def submit_quiz(data: QuizSubmit):
+def submit_quiz(data: QuizSubmit, user_id: int = Depends(auth.current_user_id)):
     quiz_type = data.quiz_type if data.quiz_type in ("quiz", "listening") else "quiz"
     conn = get_db()
     conn.execute(
-        "INSERT INTO quiz_results (word_id, correct, quiz_type) VALUES (?, ?, ?)",
-        (data.word_id, 1 if data.correct else 0, quiz_type)
+        "INSERT INTO quiz_results (user_id, word_id, correct, quiz_type) VALUES (?, ?, ?, ?)",
+        (user_id, data.word_id, 1 if data.correct else 0, quiz_type)
     )
     conn.commit()
     conn.close()
     return {"ok": True}
 
+# Dữ liệu giáo trình (từ vựng, hội thoại, câu ví dụ...) giống nhau cho mọi
+# người — cho phép browser/CDN cache 1 giờ để giảm tải Render + tăng tốc.
+STATIC_DATA_CACHE = "public, max-age=3600"
+
+
 @app.get("/api/words/{hsk_level}")
-def get_words_list(hsk_level: int):
+def get_words_list(hsk_level: int, response: Response):
+    response.headers["Cache-Control"] = STATIC_DATA_CACHE
     hsk_level = max(1, min(9, hsk_level))
     conn = get_db()
     rows = conn.execute(
@@ -601,26 +838,27 @@ def get_words_list(hsk_level: int):
     ]}
 
 @app.get("/api/progress")
-def get_progress():
+def get_progress(user_id: Optional[int] = Depends(auth.optional_user_id)):
+    uid = user_id if user_id is not None else -1
     conn = get_db()
     stats = conn.execute("""
-        SELECT 
+        SELECT
             w.hsk_level,
             COUNT(*) as total,
             SUM(CASE WHEN uw.repetitions >= 5 THEN 1 ELSE 0 END) as mastered,
             SUM(CASE WHEN uw.repetitions >= 1 THEN 1 ELSE 0 END) as seen,
             ROUND(AVG(uw.correct_count * 1.0 / NULLIF(uw.total_reviews, 0)), 2) as accuracy
         FROM words w
-        JOIN user_words uw ON w.id = uw.word_id
+        LEFT JOIN user_words uw ON w.id = uw.word_id AND uw.user_id = ?
         GROUP BY w.hsk_level
         ORDER BY w.hsk_level
-    """).fetchall()
-    
+    """, (uid,)).fetchall()
+
     today_reviewed = conn.execute("""
-        SELECT COUNT(*) FROM user_words 
-        WHERE DATE(next_review) = DATE('now') AND total_reviews > 0
-    """).fetchone()[0]
-    
+        SELECT COUNT(*) FROM user_words
+        WHERE user_id = ? AND DATE(next_review) = DATE('now') AND total_reviews > 0
+    """, (uid,)).fetchone()[0]
+
     conn.close()
     return {
         "levels": [dict(s) for s in stats],
@@ -630,7 +868,8 @@ def get_progress():
 # ---- DIALOGUES ----
 
 @app.get("/api/dialogues")
-def list_dialogues(level: Optional[int] = None):
+def list_dialogues(response: Response, level: Optional[int] = None):
+    response.headers["Cache-Control"] = STATIC_DATA_CACHE
     conn = get_db()
     if level:
         rows = conn.execute(
@@ -645,7 +884,8 @@ def list_dialogues(level: Optional[int] = None):
     return {"dialogues": [dict(r) for r in rows]}
 
 @app.get("/api/dialogues/{dialogue_id}")
-def get_dialogue(dialogue_id: str):
+def get_dialogue(dialogue_id: str, response: Response):
+    response.headers["Cache-Control"] = STATIC_DATA_CACHE
     conn = get_db()
     d = conn.execute("SELECT * FROM dialogues WHERE id=?", (dialogue_id,)).fetchone()
     if not d:
@@ -661,14 +901,17 @@ def get_dialogue(dialogue_id: str):
     return {"dialogue": dict(d), "lines": [dict(l) for l in lines]}
 
 @app.get("/api/note/{word}")
-def get_context_note_api(word: str):
+def get_context_note_api(word: str, response: Response):
+    response.headers["Cache-Control"] = STATIC_DATA_CACHE
     note = get_context_note(word)
     return {"word": word, "note": note}
 
 # ---- THEMES API ----
 
 @app.get("/api/themes")
-def list_themes(level: Optional[int] = None):
+def list_themes(level: Optional[int] = None,
+                user_id: Optional[int] = Depends(auth.optional_user_id)):
+    uid = user_id if user_id is not None else -1
     conn = get_db()
     rows = conn.execute("""
         SELECT t.*,
@@ -676,16 +919,18 @@ def list_themes(level: Optional[int] = None):
                 WHERE tw.theme_id = t.id AND (? IS NULL OR w.hsk_level = ?)) as total_words,
                (SELECT COUNT(*) FROM theme_words tw
                 JOIN words w ON tw.word_id = w.id
-                JOIN user_words uw ON tw.word_id = uw.word_id
+                JOIN user_words uw ON tw.word_id = uw.word_id AND uw.user_id = ?
                 WHERE tw.theme_id = t.id AND uw.repetitions >= 1 AND (? IS NULL OR w.hsk_level = ?)) as learned_words
         FROM themes t
         ORDER BY t.id
-    """, (level, level, level, level)).fetchall()
+    """, (level, level, uid, level, level)).fetchall()
     conn.close()
     return {"themes": [dict(r) for r in rows]}
 
 @app.get("/api/themes/{theme_id}")
-def get_theme(theme_id: str, level: Optional[int] = None):
+def get_theme(theme_id: str, level: Optional[int] = None,
+              user_id: Optional[int] = Depends(auth.optional_user_id)):
+    uid = user_id if user_id is not None else -1
     conn = get_db()
     t = conn.execute("SELECT * FROM themes WHERE id=?", (theme_id,)).fetchone()
     if not t:
@@ -694,13 +939,13 @@ def get_theme(theme_id: str, level: Optional[int] = None):
 
     words = conn.execute("""
         SELECT w.id, w.simplified, w.pinyin, w.meanings, w.hsk_level, w.radical, w.sino_viet,
-               uw.repetitions
+               COALESCE(uw.repetitions, 0) as repetitions
         FROM theme_words tw
         JOIN words w ON tw.word_id = w.id
-        JOIN user_words uw ON w.id = uw.word_id
+        LEFT JOIN user_words uw ON w.id = uw.word_id AND uw.user_id = ?
         WHERE tw.theme_id = ? AND (? IS NULL OR w.hsk_level = ?)
         ORDER BY tw.sort_order
-    """, (theme_id, level, level)).fetchall()
+    """, (uid, theme_id, level, level)).fetchall()
     conn.close()
 
     result = []
@@ -726,21 +971,24 @@ def get_theme(theme_id: str, level: Optional[int] = None):
     return {"theme": dict(t), "words": result}
 
 @app.post("/api/themes/{theme_id}/learn/{word_id}")
-def learn_word_in_theme(theme_id: str, word_id: int):
+def learn_word_in_theme(theme_id: str, word_id: int,
+                        user_id: int = Depends(auth.current_user_id)):
     conn = get_db()
-    exists = conn.execute("SELECT 1 FROM user_words WHERE word_id = ?", (word_id,)).fetchone()
+    exists = conn.execute("SELECT 1 FROM words WHERE id = ?", (word_id,)).fetchone()
     if not exists:
         conn.close()
         return JSONResponse({"error": "Word not found"}, status_code=404)
     conn.execute("""
-        UPDATE user_words SET repetitions = MAX(repetitions, 1),
-            total_reviews = total_reviews + 1,
-            correct_count = correct_count + 1
-        WHERE word_id = ?
-    """, (word_id,))
-    gamify.touch_streak(conn)
-    gamify.award_xp(conn, gamify.XP_LESSON_WORD, 'lesson_word')
-    newly_earned = gamify.check_badges(conn)
+        INSERT INTO user_words (user_id, word_id, repetitions, total_reviews, correct_count)
+        VALUES (?, ?, 1, 1, 1)
+        ON CONFLICT(user_id, word_id) DO UPDATE SET
+            repetitions = MAX(user_words.repetitions, 1),
+            total_reviews = user_words.total_reviews + 1,
+            correct_count = user_words.correct_count + 1
+    """, (user_id, word_id))
+    gamify.touch_streak(conn, user_id)
+    gamify.award_xp(conn, user_id, gamify.XP_LESSON_WORD, 'lesson_word')
+    newly_earned = gamify.check_badges(conn, user_id)
     conn.commit()
     conn.close()
     return {"ok": True, "newly_earned_badges": newly_earned}
@@ -754,11 +1002,11 @@ class PronunciationLog(BaseModel):
     score: Literal["ok", "warn", "fail"]
 
 @app.post("/api/pronunciation/log")
-def log_pronunciation(data: PronunciationLog):
+def log_pronunciation(data: PronunciationLog, user_id: int = Depends(auth.current_user_id)):
     conn = get_db()
     conn.execute(
-        "INSERT INTO pronunciation_attempts (word_id, target_text, recognized_text, score) VALUES (?, ?, ?, ?)",
-        (data.word_id, data.target_text, data.recognized_text, data.score)
+        "INSERT INTO pronunciation_attempts (user_id, word_id, target_text, recognized_text, score) VALUES (?, ?, ?, ?, ?)",
+        (user_id, data.word_id, data.target_text, data.recognized_text, data.score)
     )
     conn.commit()
     conn.close()
@@ -767,9 +1015,11 @@ def log_pronunciation(data: PronunciationLog):
 # ---- WRITING PRACTICE ----
 
 @app.get("/api/writing/characters")
-def get_writing_characters(hsk_level: int = 2):
+def get_writing_characters(hsk_level: int = 2,
+                           user_id: Optional[int] = Depends(auth.optional_user_id)):
     """Danh sách ký tự đơn (tách từ ghép, dedupe) kèm trạng thái luyện viết."""
     import re
+    uid = user_id if user_id is not None else -1
     conn = get_db()
     rows = conn.execute(
         "SELECT simplified, hsk_level FROM words WHERE hsk_level <= ? ORDER BY hsk_level, id",
@@ -777,7 +1027,10 @@ def get_writing_characters(hsk_level: int = 2):
     ).fetchall()
     practiced = {
         r["character"]: r for r in
-        conn.execute("SELECT character, attempts, best_mistakes, mastered FROM writing_practice").fetchall()
+        conn.execute(
+            "SELECT character, attempts, best_mistakes, mastered FROM writing_practice WHERE user_id=?",
+            (uid,)
+        ).fetchall()
     }
     conn.close()
 
@@ -804,31 +1057,32 @@ class WritingComplete(BaseModel):
     mistakes: int
 
 @app.post("/api/writing/complete")
-def complete_writing(data: WritingComplete):
+def complete_writing(data: WritingComplete, user_id: int = Depends(auth.current_user_id)):
     conn = get_db()
     conn.execute("""
-        INSERT INTO writing_practice (character, attempts, best_mistakes, mastered, last_practiced)
-        VALUES (?, 1, ?, ?, datetime('now'))
-        ON CONFLICT(character) DO UPDATE SET
+        INSERT INTO writing_practice (user_id, character, attempts, best_mistakes, mastered, last_practiced)
+        VALUES (?, ?, 1, ?, ?, datetime('now'))
+        ON CONFLICT(user_id, character) DO UPDATE SET
             attempts = attempts + 1,
             best_mistakes = MIN(COALESCE(best_mistakes, 9999), excluded.best_mistakes),
             mastered = MAX(mastered, excluded.mastered),
             last_practiced = datetime('now')
-    """, (data.character, data.mistakes, 1 if data.mistakes == 0 else 0))
-    gamify.touch_streak(conn)
+    """, (user_id, data.character, data.mistakes, 1 if data.mistakes == 0 else 0))
+    gamify.touch_streak(conn, user_id)
     gamify.award_xp(
-        conn,
+        conn, user_id,
         gamify.XP_WRITING_PERFECT if data.mistakes == 0 else gamify.XP_WRITING_ATTEMPT,
         'writing'
     )
-    newly_earned = gamify.check_badges(conn)
+    newly_earned = gamify.check_badges(conn, user_id)
     conn.commit()
     conn.close()
     return {"ok": True, "newly_earned_badges": newly_earned}
 
 @app.get("/api/sentence/{word}")
-def get_sentence_api(word: str):
+def get_sentence_api(word: str, response: Response):
     """Get example sentence for a word."""
+    response.headers["Cache-Control"] = STATIC_DATA_CACHE
     sentence = get_sentence(word)
     if sentence:
         return {"word": word, "cn": sentence[0], "vi": sentence[1]}
@@ -841,27 +1095,29 @@ PRON_SCORE_MAP = {"ok": 1.0, "warn": 0.5, "fail": 0.0}
 def _pct(numerator, denominator):
     return round(100 * numerator / denominator) if denominator else None
 
-def _compute_skill_breakdown(conn):
+def _compute_skill_breakdown(conn, user_id):
     vocab_row = conn.execute("""
         SELECT COUNT(*) total, SUM(correct) correct FROM quiz_results
-        WHERE quiz_type IN ('quiz', 'theme_quiz', 'review')
-    """).fetchone()
+        WHERE user_id = ? AND quiz_type IN ('quiz', 'theme_quiz', 'review')
+    """, (user_id,)).fetchone()
     vocab_score = _pct(vocab_row["correct"] or 0, vocab_row["total"] or 0)
 
     grammar_row = conn.execute("""
         SELECT COUNT(*) total, SUM(qr.correct) correct FROM quiz_results qr
         JOIN context_notes cn ON cn.word_id = qr.word_id
-        WHERE qr.quiz_type IN ('quiz', 'theme_quiz', 'review', 'placement')
-    """).fetchone()
+        WHERE qr.user_id = ? AND qr.quiz_type IN ('quiz', 'theme_quiz', 'review', 'placement')
+    """, (user_id,)).fetchone()
     grammar_score = _pct(grammar_row["correct"] or 0, grammar_row["total"] or 0)
 
     listening_row = conn.execute("""
         SELECT COUNT(*) total, SUM(correct) correct FROM quiz_results
-        WHERE quiz_type = 'listening'
-    """).fetchone()
+        WHERE user_id = ? AND quiz_type = 'listening'
+    """, (user_id,)).fetchone()
     listening_score = _pct(listening_row["correct"] or 0, listening_row["total"] or 0)
 
-    pron_rows = conn.execute("SELECT score FROM pronunciation_attempts").fetchall()
+    pron_rows = conn.execute(
+        "SELECT score FROM pronunciation_attempts WHERE user_id = ?", (user_id,)
+    ).fetchall()
     if pron_rows:
         speaking_score = round(100 * sum(PRON_SCORE_MAP.get(r["score"], 0) for r in pron_rows) / len(pron_rows))
     else:
@@ -899,9 +1155,10 @@ def _skill_explanation_vi(skills, weakest, strongest):
     return " ".join(p for p in parts if p)
 
 @app.get("/api/skills/breakdown")
-def get_skill_breakdown():
+def get_skill_breakdown(user_id: Optional[int] = Depends(auth.optional_user_id)):
+    uid = user_id if user_id is not None else -1
     conn = get_db()
-    skills, weakest, strongest = _compute_skill_breakdown(conn)
+    skills, weakest, strongest = _compute_skill_breakdown(conn, uid)
     conn.close()
     return {
         "skills": skills,
@@ -910,30 +1167,166 @@ def get_skill_breakdown():
         "explanation_vi": _skill_explanation_vi(skills, weakest, strongest),
     }
 
+# ---- MISTAKE ANALYTICS (phân tích lỗi sai) ----
+
+@app.get("/api/mistakes/summary")
+def mistakes_summary(days: int = 30,
+                     user_id: Optional[int] = Depends(auth.optional_user_id)):
+    """Tổng hợp lỗi sai của user trong `days` ngày: top từ sai nhiều nhất,
+    chủ đề yếu nhất, và tỉ lệ đúng theo loại bài. Nguồn: quiz_results."""
+    uid = user_id if user_id is not None else -1
+    days = max(1, min(365, days))
+    since = f"-{days} days"
+    conn = get_db()
+
+    top_wrong = conn.execute("""
+        SELECT w.id, w.simplified, w.pinyin, w.meanings, w.hsk_level, w.sino_viet,
+               COUNT(*) as wrong_count, MAX(qr.created_at) as last_wrong
+        FROM quiz_results qr JOIN words w ON w.id = qr.word_id
+        WHERE qr.user_id = ? AND qr.correct = 0 AND qr.created_at >= datetime('now', ?)
+        GROUP BY w.id
+        ORDER BY wrong_count DESC, last_wrong DESC
+        LIMIT 10
+    """, (uid, since)).fetchall()
+
+    weak_themes = conn.execute("""
+        SELECT t.id, t.name, t.icon,
+               COUNT(*) as total, SUM(qr.correct) as correct
+        FROM quiz_results qr
+        JOIN theme_words tw ON tw.word_id = qr.word_id
+        JOIN themes t ON t.id = tw.theme_id
+        WHERE qr.user_id = ? AND qr.created_at >= datetime('now', ?)
+        GROUP BY t.id
+        HAVING COUNT(*) >= 3
+        ORDER BY (SUM(qr.correct) * 1.0 / COUNT(*)) ASC
+        LIMIT 5
+    """, (uid, since)).fetchall()
+
+    by_type = conn.execute("""
+        SELECT quiz_type, COUNT(*) as total, SUM(correct) as correct
+        FROM quiz_results
+        WHERE user_id = ? AND created_at >= datetime('now', ?)
+        GROUP BY quiz_type
+    """, (uid, since)).fetchall()
+
+    total_wrong = conn.execute("""
+        SELECT COUNT(*) FROM quiz_results
+        WHERE user_id = ? AND correct = 0 AND created_at >= datetime('now', ?)
+    """, (uid, since)).fetchone()[0]
+
+    conn.close()
+    return {
+        "days": days,
+        "total_wrong": total_wrong,
+        "top_wrong_words": [
+            {"id": r["id"], "simplified": r["simplified"], "pinyin": r["pinyin"],
+             "meanings": r["meanings"], "hsk_level": r["hsk_level"],
+             "sino_viet": r["sino_viet"] or "", "wrong_count": r["wrong_count"],
+             "last_wrong": r["last_wrong"]}
+            for r in top_wrong
+        ],
+        "weak_themes": [
+            {"id": r["id"], "name": r["name"], "icon": r["icon"],
+             "total": r["total"], "correct": r["correct"] or 0,
+             "pct": round(100 * (r["correct"] or 0) / r["total"]) if r["total"] else None}
+            for r in weak_themes
+        ],
+        "by_type": [
+            {"quiz_type": r["quiz_type"], "total": r["total"],
+             "correct": r["correct"] or 0,
+             "pct": round(100 * (r["correct"] or 0) / r["total"]) if r["total"] else None}
+            for r in by_type
+        ],
+    }
+
+
+@app.get("/api/mistakes/words")
+def mistake_words(days: int = 30, limit: int = 30,
+                  user_id: Optional[int] = Depends(auth.optional_user_id)):
+    """Danh sách từ đã trả lời sai (dạng flashcard đầy đủ) để ôn lại — vòng
+    feedback khép kín: sai ở đâu ôn lại đúng chỗ đó."""
+    uid = user_id if user_id is not None else -1
+    days = max(1, min(365, days))
+    limit = max(1, min(100, limit))
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT w.id, w.simplified, w.pinyin, w.meanings, w.hsk_level, w.radical, w.sino_viet,
+               COUNT(*) as wrong_count, MAX(qr.created_at) as last_wrong
+        FROM quiz_results qr JOIN words w ON w.id = qr.word_id
+        WHERE qr.user_id = ? AND qr.correct = 0 AND qr.created_at >= datetime('now', ?)
+        GROUP BY w.id
+        ORDER BY wrong_count DESC, last_wrong DESC
+        LIMIT ?
+    """, (uid, f"-{days} days", limit)).fetchall()
+    conn.close()
+
+    words = []
+    for r in rows:
+        d = {
+            "id": r["id"],
+            "simplified": r["simplified"],
+            "pinyin": r["pinyin"],
+            "meanings": [m.strip() for m in r["meanings"].split(",")],
+            "hsk_level": r["hsk_level"],
+            "sino_viet": r["sino_viet"] or "",
+            "wrong_count": r["wrong_count"],
+        }
+        sent = get_sentence(r["simplified"])
+        if sent:
+            d["sentence_cn"] = sent[0]
+            d["sentence_vi"] = sent[1]
+        note = get_context_note(r["simplified"])
+        if note:
+            d["context_note"] = note
+        words.append(d)
+    return {"words": words}
+
+
+# ---- GRAMMAR (ngữ pháp hệ thống theo cấp) ----
+
+from grammar_data import get_grammar_levels, get_grammar_points
+
+
+@app.get("/api/grammar")
+def grammar_levels(response: Response):
+    response.headers["Cache-Control"] = STATIC_DATA_CACHE
+    return {"levels": get_grammar_levels()}
+
+
+@app.get("/api/grammar/{hsk_level}")
+def grammar_points(hsk_level: int, response: Response):
+    response.headers["Cache-Control"] = STATIC_DATA_CACHE
+    hsk_level = max(1, min(9, hsk_level))
+    return {"hsk_level": hsk_level, "points": get_grammar_points(hsk_level)}
+
+
 # ---- HSK 3.0 MAPPING ----
 
 @app.get("/api/hsk-mapping")
-def get_hsk_mapping():
+def get_hsk_mapping(response: Response):
+    response.headers["Cache-Control"] = STATIC_DATA_CACHE
     return {"mapping": HSK_MAPPING}
 
 # ---- DAILY 5-MINUTE SESSION ----
 
 @app.get("/api/daily-session")
-def get_daily_session(level: Optional[int] = None):
+def get_daily_session(level: Optional[int] = None,
+                      user_id: Optional[int] = Depends(auth.optional_user_id)):
     """Lắp ráp phiên học 5 phút/ngày: ôn từ (SM-2), nghe, nói, hội thoại ngắn.
     Ưu tiên nội dung liên quan tới kỹ năng yếu nhất, nhưng luôn đủ 4 khối.
     `level`: cấp HSK người dùng chọn ở Trang chủ (tuỳ chọn) — cả 4 khối lấy
     nội dung ĐÚNG cấp đó (chọn HSK 6 thì ôn/nghe/nói/hội thoại đều HSK 6);
     khối nghe/hội thoại rơi về cấp gần dưới nếu cấp đó không có dữ liệu."""
+    uid = user_id if user_id is not None else -1
     conn = get_db()
-    skills, weakest, _ = _compute_skill_breakdown(conn)
+    skills, weakest, _ = _compute_skill_breakdown(conn, uid)
 
     review_rows = conn.execute("""
         SELECT w.id, w.simplified, w.pinyin, w.meanings, w.hsk_level, w.sino_viet
-        FROM words w JOIN user_words uw ON w.id = uw.word_id
-        WHERE uw.next_review <= datetime('now') AND (? IS NULL OR w.hsk_level = ?)
-        ORDER BY uw.next_review ASC, uw.repetitions ASC LIMIT 5
-    """, (level, level)).fetchall()
+        FROM words w LEFT JOIN user_words uw ON w.id = uw.word_id AND uw.user_id = ?
+        WHERE (uw.next_review IS NULL OR uw.next_review <= datetime('now')) AND (? IS NULL OR w.hsk_level = ?)
+        ORDER BY (uw.next_review IS NULL) ASC, uw.next_review ASC, COALESCE(uw.repetitions, 0) ASC LIMIT 5
+    """, (uid, level, level)).fetchall()
     review_block = [dict(r) for r in review_rows]
 
     listen_row = conn.execute("""
@@ -992,9 +1385,10 @@ def _ai_chat_topic_label(topic_id):
     return "Trò chuyện tự do"
 
 @app.get("/api/ai-chat/status")
-def ai_chat_status():
+def ai_chat_status(user_id: Optional[int] = Depends(auth.optional_user_id)):
+    uid = user_id if user_id is not None else -1
     conn = get_db()
-    used = ai_chat.get_usage_today(conn)
+    used = ai_chat.get_usage_today(conn, uid)
     conn.close()
     return {
         "enabled": ai_chat.is_enabled(),
@@ -1004,7 +1398,7 @@ def ai_chat_status():
     }
 
 @app.post("/api/ai-chat/respond")
-def ai_chat_respond(data: AiChatRequest):
+def ai_chat_respond(data: AiChatRequest, user_id: int = Depends(auth.current_user_id)):
     hsk_level = max(1, min(9, data.hsk_level))
     topic_label = _ai_chat_topic_label(data.topic_id)
     if not isinstance(data.messages, list) or len(data.messages) > 60:
@@ -1016,7 +1410,7 @@ def ai_chat_respond(data: AiChatRequest):
         return {**reply, "demo": True, "remaining_today": None}
 
     conn = get_db()
-    used = ai_chat.get_usage_today(conn)
+    used = ai_chat.get_usage_today(conn, user_id)
     if used >= ai_chat.DAILY_LIMIT:
         conn.close()
         return JSONResponse(
@@ -1031,11 +1425,11 @@ def ai_chat_respond(data: AiChatRequest):
         return JSONResponse({"error": e.message_vi}, status_code=e.status_code)
 
     conn = get_db()
-    ai_chat.increment_usage(conn)
-    remaining = max(0, ai_chat.DAILY_LIMIT - ai_chat.get_usage_today(conn))
-    gamify.touch_streak(conn)
-    gamify.award_xp(conn, gamify.XP_AI_CHAT_TURN, 'ai_chat')
-    newly_earned = gamify.check_badges(conn)
+    ai_chat.increment_usage(conn, user_id)
+    remaining = max(0, ai_chat.DAILY_LIMIT - ai_chat.get_usage_today(conn, user_id))
+    gamify.touch_streak(conn, user_id)
+    gamify.award_xp(conn, user_id, gamify.XP_AI_CHAT_TURN, 'ai_chat')
+    newly_earned = gamify.check_badges(conn, user_id)
     conn.commit()
     conn.close()
     return {**reply, "demo": False, "remaining_today": remaining,
@@ -1044,7 +1438,8 @@ def ai_chat_respond(data: AiChatRequest):
 # ---- SCRIPTED CONVERSATION PRACTICE ----
 
 @app.get("/api/conversation/{scenario_id}")
-def get_conversation(scenario_id: str):
+def get_conversation(scenario_id: str, response: Response):
+    response.headers["Cache-Control"] = STATIC_DATA_CACHE
     scenario = CONVERSATIONS.get(scenario_id)
     if not scenario:
         return JSONResponse({"error": "Scenario not found"}, status_code=404)
@@ -1057,7 +1452,8 @@ class ConversationRespond(BaseModel):
     choice_id: str
 
 @app.post("/api/conversation/{scenario_id}/respond")
-def respond_conversation(scenario_id: str, data: ConversationRespond):
+def respond_conversation(scenario_id: str, data: ConversationRespond,
+                         user_id: int = Depends(auth.current_user_id)):
     scenario = CONVERSATIONS.get(scenario_id)
     if not scenario:
         return JSONResponse({"error": "Scenario not found"}, status_code=404)
@@ -1072,9 +1468,9 @@ def respond_conversation(scenario_id: str, data: ConversationRespond):
     is_end = len(next_node["choices"]) == 0
     if is_end:
         conn = get_db()
-        gamify.touch_streak(conn)
-        gamify.award_xp(conn, 20, 'conversation_complete')
-        newly_earned = gamify.check_badges(conn)
+        gamify.touch_streak(conn, user_id)
+        gamify.award_xp(conn, user_id, 20, 'conversation_complete')
+        newly_earned = gamify.check_badges(conn, user_id)
         conn.commit()
         conn.close()
     else:
@@ -1198,7 +1594,8 @@ class ExamSubmit(BaseModel):
 
 
 @app.post("/api/exam/{hsk_level}/submit")
-def submit_exam(hsk_level: int, data: ExamSubmit):
+def submit_exam(hsk_level: int, data: ExamSubmit,
+                user_id: int = Depends(auth.current_user_id)):
     hsk_level = max(1, min(9, hsk_level))
     section_totals = {}
     for a in data.answers:
@@ -1220,14 +1617,14 @@ def submit_exam(hsk_level: int, data: ExamSubmit):
 
     conn = get_db()
     conn.execute(
-        "INSERT INTO exam_sessions (hsk_level, total_questions, correct_count, section_scores, score_pct, passed, duration_seconds) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (hsk_level, total, correct_count, json.dumps(section_scores, ensure_ascii=False),
+        "INSERT INTO exam_sessions (user_id, hsk_level, total_questions, correct_count, section_scores, score_pct, passed, duration_seconds) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, hsk_level, total, correct_count, json.dumps(section_scores, ensure_ascii=False),
          score_pct, 1 if passed else 0, data.duration_seconds)
     )
-    gamify.touch_streak(conn)
-    gamify.award_xp(conn, correct_count * 5 + (50 if passed else 0), 'exam')
-    newly_earned = gamify.check_badges(conn)
+    gamify.touch_streak(conn, user_id)
+    gamify.award_xp(conn, user_id, correct_count * 5 + (50 if passed else 0), 'exam')
+    newly_earned = gamify.check_badges(conn, user_id)
     conn.commit()
     conn.close()
 
@@ -1239,14 +1636,19 @@ def submit_exam(hsk_level: int, data: ExamSubmit):
 
 
 @app.get("/api/exam/history")
-def exam_history(hsk_level: Optional[int] = None, limit: int = 20):
+def exam_history(hsk_level: Optional[int] = None, limit: int = 20,
+                 user_id: Optional[int] = Depends(auth.optional_user_id)):
+    uid = user_id if user_id is not None else -1
     conn = get_db()
     if hsk_level:
         rows = conn.execute(
-            "SELECT * FROM exam_sessions WHERE hsk_level=? ORDER BY created_at DESC LIMIT ?", (hsk_level, limit)
+            "SELECT * FROM exam_sessions WHERE user_id=? AND hsk_level=? ORDER BY created_at DESC LIMIT ?",
+            (uid, hsk_level, limit)
         ).fetchall()
     else:
-        rows = conn.execute("SELECT * FROM exam_sessions ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM exam_sessions WHERE user_id=? ORDER BY created_at DESC LIMIT ?", (uid, limit)
+        ).fetchall()
     conn.close()
     result = []
     for r in rows:
@@ -1257,13 +1659,14 @@ def exam_history(hsk_level: Optional[int] = None, limit: int = 20):
 
 
 @app.get("/api/exam/best")
-def exam_best():
+def exam_best(user_id: Optional[int] = Depends(auth.optional_user_id)):
     """Best score + attempt count per level — for the exam picker page."""
+    uid = user_id if user_id is not None else -1
     conn = get_db()
     rows = conn.execute("""
         SELECT hsk_level, MAX(score_pct) as best_pct, SUM(passed) as pass_count, COUNT(*) as attempt_count
-        FROM exam_sessions GROUP BY hsk_level
-    """).fetchall()
+        FROM exam_sessions WHERE user_id=? GROUP BY hsk_level
+    """, (uid,)).fetchall()
     conn.close()
     return {"levels": [dict(r) for r in rows]}
 

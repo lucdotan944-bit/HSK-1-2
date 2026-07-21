@@ -25,6 +25,20 @@ function fmtTime(sec: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+// Khớp với EXAM_TIER_QUESTION_COUNT / EXAM_TIER_TIME_LIMIT_MIN phía backend —
+// hiển thị trước cho thí sinh biết thể lệ ngay ở màn hình bắt đầu.
+const EXAM_INFO: Record<number, { questions: number; minutes: number }> = {
+  1: { questions: 20, minutes: 15 },
+  2: { questions: 20, minutes: 15 },
+  3: { questions: 20, minutes: 15 },
+  4: { questions: 30, minutes: 25 },
+  5: { questions: 30, minutes: 25 },
+  6: { questions: 30, minutes: 25 },
+  7: { questions: 40, minutes: 35 },
+  8: { questions: 40, minutes: 35 },
+  9: { questions: 40, minutes: 35 },
+};
+
 export default function ExamRunnerPage({ params }: { params: Promise<{ level: string }> }) {
   const { level: levelParam } = usePromise(params);
   const level = Math.max(1, Math.min(9, parseInt(levelParam, 10) || 1));
@@ -123,6 +137,10 @@ export default function ExamRunnerPage({ params }: { params: Promise<{ level: st
             <li>📖 Đọc/Từ vựng — chọn nghĩa đúng của chữ Hán</li>
             <li>✍️ Ngữ pháp — điền từ còn thiếu vào câu</li>
           </ul>
+          <p>
+            ⏱ {EXAM_INFO[level].questions} câu trong {EXAM_INFO[level].minutes} phút — hết giờ bài thi
+            tự động nộp, giống điều kiện thi thật.
+          </p>
           <p>Đạt từ 60% câu đúng trở lên là Đạt bài thi.</p>
         </Card>
         <Button onClick={start}>Bắt đầu thi</Button>
