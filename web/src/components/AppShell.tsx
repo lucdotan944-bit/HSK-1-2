@@ -112,6 +112,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 pb-24 pt-6 md:pb-10">{children}</main>
 
+      <footer className="hidden border-t border-line px-4 py-4 text-center text-xs text-ink-soft md:block">
+        <Link href="/privacy" className="hover:text-ink hover:underline">
+          Chính sách bảo mật
+        </Link>
+      </footer>
+
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-paper/95 backdrop-blur md:hidden">
         <div className="mx-auto flex max-w-5xl items-stretch justify-between px-1">
           {NAV.map((item) => (
