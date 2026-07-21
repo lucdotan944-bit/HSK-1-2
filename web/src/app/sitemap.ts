@@ -14,6 +14,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/exam", priority: 0.6 },
     { path: "/placement", priority: 0.5 },
     { path: "/progress", priority: 0.4 },
+    { path: "/privacy", priority: 0.2 },
   ];
 
   const examLevels = Array.from({ length: 9 }, (_, i) => ({
