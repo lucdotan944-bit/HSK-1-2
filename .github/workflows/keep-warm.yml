@@ -1,0 +1,19 @@
+# Render free tier ngủ sau ~15 phút không có traffic → request đầu tiên sau đó
+# mất ~13s (cold start). Ping mỗi 10 phút để backend luôn ấm.
+# Lưu ý: schedule của GitHub Actions có thể trễ vài phút lúc cao điểm — chấp
+# nhận được cho mục đích giữ ấm.
+name: Keep Render API warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping API health endpoint
+        run: |
+          curl -sS -m 30 -o /dev/null -w "HTTP %{http_code} in %{time_total}s\n" \
+            https://hsk-app-api.onrender.com/ || true
