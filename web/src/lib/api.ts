@@ -20,9 +20,22 @@ export class ApiError extends Error {
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const base = typeof window === "undefined" ? SERVER_API_BASE : "";
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (typeof window === "undefined") {
+    // Server Components gọi thẳng FastAPI (không qua trình duyệt) nên phải tự
+    // chuyển tiếp session cookie của người đang xem — nếu không mọi trang SSR
+    // sẽ render dữ liệu của "khách chưa đăng nhập".
+    const { cookies } = await import("next/headers");
+    const jar = await cookies();
+    const cookieHeader = jar
+      .getAll()
+      .map((c) => `${c.name}=${c.value}`)
+      .join("; ");
+    if (cookieHeader) headers.cookie = cookieHeader;
+  }
   const res = await fetch(`${base}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+    headers: { ...headers, ...(init?.headers || {}) },
     cache: "no-store",
   });
   if (!res.ok) {
@@ -221,7 +234,53 @@ export type AiChatReply = {
 };
 export type AiChatStatus = { enabled: boolean; model: string; limit: number; remaining_today: number };
 
+export type GrammarExample = { cn: string; pinyin: string; hv: string; vi: string };
+export type GrammarPoint = {
+  id: string;
+  title: string;
+  pattern: string;
+  explanation: string;
+  examples: GrammarExample[];
+};
+
+export type MistakesSummary = {
+  days: number;
+  total_wrong: number;
+  top_wrong_words: {
+    id: number;
+    simplified: string;
+    pinyin: string;
+    meanings: string;
+    hsk_level: number;
+    sino_viet: string;
+    wrong_count: number;
+    last_wrong: string;
+  }[];
+  weak_themes: { id: string; name: string; icon: string; total: number; correct: number; pct: number | null }[];
+  by_type: { quiz_type: string; total: number; correct: number; pct: number | null }[];
+};
+
+export type AuthMe = {
+  authenticated: boolean;
+  is_guest: boolean;
+  email: string | null;
+  display_name: string;
+  google_enabled: boolean;
+};
+
 export const api = {
+  authMe: () => jsonFetch<AuthMe>("/api/auth/me"),
+  authRegister: (email: string, password: string, displayName = "") =>
+    jsonFetch<{ ok: true; email: string; display_name: string; kept_progress: boolean }>("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password, display_name: displayName }),
+    }),
+  authLogin: (email: string, password: string) =>
+    jsonFetch<{ ok: true; email: string; display_name: string }>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  authLogout: () => jsonFetch<{ ok: true }>("/api/auth/logout", { method: "POST" }),
   stats: () => jsonFetch<Stats>("/api/stats"),
   gamifyState: () => jsonFetch<GamifyState>("/api/gamify/state"),
   badges: () => jsonFetch<{ badges: Badge[] }>("/api/badges"),
@@ -284,6 +343,12 @@ export const api = {
   logPronunciation: (data: { word_id?: number; target_text: string; recognized_text: string; score: "ok" | "warn" | "fail" }) =>
     jsonFetch(`/api/pronunciation/log`, { method: "POST", body: JSON.stringify(data) }),
   skillBreakdown: () => jsonFetch<SkillBreakdown>("/api/skills/breakdown"),
+  mistakesSummary: (days = 30) => jsonFetch<MistakesSummary>(`/api/mistakes/summary?days=${days}`),
+  mistakeWords: (days = 30, limit = 30) =>
+    jsonFetch<{ words: (Word & { wrong_count: number })[] }>(`/api/mistakes/words?days=${days}&limit=${limit}`),
+  grammarLevels: () => jsonFetch<{ levels: { level: number; count: number }[] }>("/api/grammar"),
+  grammarPoints: (hskLevel: number) =>
+    jsonFetch<{ hsk_level: number; points: GrammarPoint[] }>(`/api/grammar/${hskLevel}`),
   hskMapping: () =>
     jsonFetch<{ mapping: { old: number; new_range: [number, number]; desc: string }[] }>("/api/hsk-mapping"),
   dailySession: (level?: number) => jsonFetch<DailySession>(`/api/daily-session${level ? `?level=${level}` : ""}`),

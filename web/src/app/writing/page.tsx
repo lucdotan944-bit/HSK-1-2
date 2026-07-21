@@ -1,26 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Script from "next/script";
+// Bundle từ npm thay vì <Script> CDN jsdelivr — trang không còn chết nếu CDN
+// chậm/bị chặn. (Dữ liệu nét chữ của từng ký tự vẫn do thư viện tự tải, và
+// được service worker cache lại cho lần sau/offline.)
+import HanziWriter from "hanzi-writer";
 import { api, meaningsList, type WritingChar } from "@/lib/api";
 import { Button, Card } from "@/components/ui";
 import { useBadgeToast } from "@/components/BadgeToast";
 import LevelPicker from "@/components/LevelPicker";
 import { usePreferredLevel } from "@/lib/level";
 
-// HanziWriter types aren't published standalone; declare the minimal shape we use.
-interface HanziWriterInstance {
-  showCharacter: () => void;
-  animateCharacter: () => void;
-  quiz: (opts: { showOutline: boolean; onComplete: (summary: { totalMistakes: number }) => void }) => void;
-}
-declare global {
-  interface Window {
-    HanziWriter?: {
-      create: (elId: string, char: string, opts: Record<string, unknown>) => HanziWriterInstance;
-    };
-  }
-}
+type HanziWriterInstance = ReturnType<typeof HanziWriter.create>;
 
 export default function WritingPage() {
   const { announce, toastNode } = useBadgeToast();
@@ -30,7 +21,6 @@ export default function WritingPage() {
   const [wordInfo, setWordInfo] = useState<string>("");
   const [status, setStatus] = useState("");
   const [result, setResult] = useState<{ mistakes: number } | null>(null);
-  const [scriptReady, setScriptReady] = useState(() => typeof window !== "undefined" && !!window.HanziWriter);
   const [loadError, setLoadError] = useState(false);
   const writerRef = useRef<HanziWriterInstance | null>(null);
 
@@ -52,7 +42,7 @@ export default function WritingPage() {
   }, [level]);
 
   useEffect(() => {
-    if (!active || !scriptReady || !window.HanziWriter) return;
+    if (!active) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reset practice UI when switching characters
     setResult(null);
     setStatus("");
@@ -62,7 +52,7 @@ export default function WritingPage() {
     });
     const el = document.getElementById("hanziTarget");
     if (el) el.innerHTML = "";
-    writerRef.current = window.HanziWriter.create("hanziTarget", active, {
+    writerRef.current = HanziWriter.create("hanziTarget", active, {
       width: 240,
       height: 240,
       padding: 12,
@@ -74,7 +64,7 @@ export default function WritingPage() {
       delayBetweenStrokes: 200,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, scriptReady]);
+  }, [active]);
 
   function animate() {
     if (!writerRef.current) return;
@@ -89,7 +79,6 @@ export default function WritingPage() {
     setResult(null);
     setStatus("Vẽ từng nét theo thứ tự");
     writerRef.current.quiz({
-      showOutline: true,
       onComplete: async (summary) => {
         const mistakes = summary.totalMistakes;
         try {
@@ -106,7 +95,6 @@ export default function WritingPage() {
 
   return (
     <div className="mx-auto max-w-lg space-y-5">
-      <Script src="https://cdn.jsdelivr.net/npm/hanzi-writer@3/dist/hanzi-writer.min.js" onLoad={() => setScriptReady(true)} />
       {toastNode}
       <h1 className="font-display text-2xl font-bold">Luyện viết chữ Hán</h1>
 

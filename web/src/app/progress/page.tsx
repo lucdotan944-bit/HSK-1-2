@@ -1,14 +1,16 @@
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { Card, SectionTitle, ProgressBar } from "@/components/ui";
 import SkillRadar from "@/components/SkillRadar";
 import { TIERS } from "@/lib/hsk";
 
 export default async function ProgressPage() {
-  const [progress, gamify, skillData, badges] = await Promise.all([
+  const [progress, gamify, skillData, badges, mistakes] = await Promise.all([
     api.progress(),
     api.gamifyState(),
     api.skillBreakdown(),
     api.badges(),
+    api.mistakesSummary(),
   ]);
 
   return (
@@ -62,6 +64,71 @@ export default async function ProgressPage() {
             </div>
           );
         })}
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="font-semibold">Phân tích lỗi sai (30 ngày qua)</p>
+          {mistakes.total_wrong > 0 && (
+            <Link
+              href="/review?mode=mistakes"
+              className="rounded-full bg-seal px-4 py-1.5 text-sm font-semibold text-white hover:opacity-90"
+            >
+              Ôn lại từ đã sai
+            </Link>
+          )}
+        </div>
+
+        {mistakes.total_wrong === 0 ? (
+          <Card>
+            <p className="text-sm text-ink-soft">
+              Chưa có lỗi sai nào được ghi nhận gần đây. Làm bài ôn tập, quiz hoặc thi thử để hệ
+              thống phân tích điểm yếu cho bạn.
+            </p>
+          </Card>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <p className="mb-2 text-sm font-semibold">Từ sai nhiều nhất</p>
+              <ul className="space-y-2">
+                {mistakes.top_wrong_words.map((w) => (
+                  <li key={w.id} className="flex items-center justify-between gap-2 text-sm">
+                    <span>
+                      <span className="font-display text-lg">{w.simplified}</span>{" "}
+                      <span className="text-ink-soft">{w.pinyin}</span>
+                      {w.sino_viet && <span className="ml-1 text-xs text-brass">({w.sino_viet})</span>}
+                    </span>
+                    <span className="shrink-0 rounded-full bg-seal/10 px-2 py-0.5 font-data text-xs text-seal">
+                      sai {w.wrong_count} lần
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+            <Card>
+              <p className="mb-2 text-sm font-semibold">Chủ đề cần củng cố</p>
+              {mistakes.weak_themes.length === 0 ? (
+                <p className="text-sm text-ink-soft">Chưa đủ dữ liệu theo chủ đề.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {mistakes.weak_themes.map((t) => (
+                    <li key={t.id} className="text-sm">
+                      <div className="mb-1 flex items-center justify-between">
+                        <span>
+                          {t.icon} {t.name}
+                        </span>
+                        <span className="font-data text-xs text-ink-soft">
+                          {t.correct}/{t.total} đúng ({t.pct}%)
+                        </span>
+                      </div>
+                      <ProgressBar value={t.pct ?? 0} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          </div>
+        )}
       </section>
 
       <section>

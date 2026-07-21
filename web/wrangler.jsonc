@@ -1,0 +1,17 @@
+// Cấu hình Cloudflare Workers cho bản deploy song song của Hán Ngữ+.
+// Deploy: npm run cf:deploy (cần `npx wrangler login` lần đầu).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hanngu-plus",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-03-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "vars": {
+    // Backend FastAPI trên Render — rewrites /api/* trong next.config.ts trỏ về đây
+    "API_ORIGIN": "https://hsk-app-api.onrender.com"
+  }
+}

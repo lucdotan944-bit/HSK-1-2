@@ -59,8 +59,27 @@ def init_db():
             FOREIGN KEY (word_id) REFERENCES words(id)
         );
 
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE,
+            password_hash TEXT,
+            google_sub TEXT UNIQUE,
+            display_name TEXT DEFAULT '',
+            is_guest INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            expires_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+
         CREATE TABLE IF NOT EXISTS user_words (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL DEFAULT 1,
             word_id INTEGER NOT NULL,
             repetitions INTEGER DEFAULT 0,
             easiness REAL DEFAULT 2.5,
@@ -73,6 +92,7 @@ def init_db():
 
         CREATE TABLE IF NOT EXISTS quiz_results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL DEFAULT 1,
             word_id INTEGER NOT NULL,
             correct INTEGER NOT NULL,
             quiz_type TEXT NOT NULL,
@@ -124,7 +144,7 @@ def init_db():
         );
 
         CREATE TABLE IF NOT EXISTS user_state (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
+            user_id INTEGER PRIMARY KEY,
             xp INTEGER DEFAULT 0,
             current_streak INTEGER DEFAULT 0,
             longest_streak INTEGER DEFAULT 0,
@@ -133,12 +153,15 @@ def init_db():
         );
 
         CREATE TABLE IF NOT EXISTS badges_earned (
-            badge_id TEXT PRIMARY KEY,
-            earned_at TEXT DEFAULT (datetime('now'))
+            user_id INTEGER NOT NULL DEFAULT 1,
+            badge_id TEXT NOT NULL,
+            earned_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (user_id, badge_id)
         );
 
         CREATE TABLE IF NOT EXISTS xp_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL DEFAULT 1,
             amount INTEGER NOT NULL,
             reason TEXT NOT NULL,
             created_at TEXT DEFAULT (datetime('now'))
@@ -146,6 +169,7 @@ def init_db():
 
         CREATE TABLE IF NOT EXISTS writing_practice (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL DEFAULT 1,
             character TEXT NOT NULL,
             attempts INTEGER DEFAULT 0,
             best_mistakes INTEGER DEFAULT NULL,
@@ -155,6 +179,7 @@ def init_db():
 
         CREATE TABLE IF NOT EXISTS pronunciation_attempts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL DEFAULT 1,
             word_id INTEGER,
             target_text TEXT NOT NULL,
             recognized_text TEXT DEFAULT '',
@@ -165,6 +190,7 @@ def init_db():
 
         CREATE TABLE IF NOT EXISTS exam_sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL DEFAULT 1,
             hsk_level INTEGER NOT NULL,
             total_questions INTEGER NOT NULL,
             correct_count INTEGER NOT NULL,
@@ -176,11 +202,12 @@ def init_db():
         );
 
         CREATE TABLE IF NOT EXISTS ai_chat_usage (
-            day TEXT PRIMARY KEY,
-            count INTEGER NOT NULL DEFAULT 0
+            user_id INTEGER NOT NULL DEFAULT 1,
+            day TEXT NOT NULL,
+            count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, day)
         );
 
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_writing_char ON writing_practice(character);
         CREATE INDEX IF NOT EXISTS idx_exam_sessions_level ON exam_sessions(hsk_level, created_at);
         CREATE INDEX IF NOT EXISTS idx_xp_log_created ON xp_log(created_at);
         CREATE INDEX IF NOT EXISTS idx_next_review ON user_words(next_review);
@@ -190,28 +217,103 @@ def init_db():
     """)
     conn.commit()
 
-    # user_words had no unique constraint on word_id, so seed_words()'s
-    # "INSERT OR IGNORE ... VALUES (word_id)" never actually had anything to
-    # conflict with — it silently inserted a fresh duplicate SM-2 row per
-    # word on every server restart. Clean up any dupes accumulated before
-    # this fix, then add the index so it can't recur (safe: submit_review
-    # always UPDATEs by word_id, touching every dupe together, so they hold
-    # identical values — keeping the one with the most progress loses nothing).
+    _migrate_multi_user(conn)
+
+    # user_words historically had no unique constraint, so old DBs may hold
+    # duplicate SM-2 rows per word. Clean up, then enforce (user_id, word_id)
+    # so submit_review's upsert has a conflict target.
     _dedupe_user_words(conn)
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_user_words_word_id ON user_words(word_id)")
+    conn.execute("DROP INDEX IF EXISTS idx_user_words_word_id")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_user_words_user_word ON user_words(user_id, word_id)")
+    conn.execute("DROP INDEX IF EXISTS idx_writing_char")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_writing_user_char ON writing_practice(user_id, character)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_quiz_results_user ON quiz_results(user_id, created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_sessions_user ON exam_sessions(user_id, created_at)")
     conn.commit()
     conn.close()
 
 
+def _has_column(conn, table, column):
+    return column in [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+
+
+def _migrate_multi_user(conn):
+    """Nâng DB single-user cũ lên multi-user. Idempotent — DB mới (đã tạo theo
+    schema mới ở trên) không có gì để làm. Mọi dữ liệu cũ gán về user_id=1
+    ("người dùng khách kế thừa" — xem seed trong main.py)."""
+    # Các bảng chỉ cần thêm cột (giữ nguyên PK id autoincrement)
+    for table in ("user_words", "quiz_results", "xp_log", "writing_practice",
+                  "pronunciation_attempts", "exam_sessions"):
+        if not _has_column(conn, table, "user_id"):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1")
+
+    # user_state: PK cũ là id CHECK(id=1) — phải dựng lại theo user_id.
+    if not _has_column(conn, "user_state", "user_id"):
+        conn.execute("ALTER TABLE user_state RENAME TO user_state_old")
+        conn.execute("""
+            CREATE TABLE user_state (
+                user_id INTEGER PRIMARY KEY,
+                xp INTEGER DEFAULT 0,
+                current_streak INTEGER DEFAULT 0,
+                longest_streak INTEGER DEFAULT 0,
+                last_active_date TEXT DEFAULT '',
+                placement_level INTEGER DEFAULT 0
+            )
+        """)
+        conn.execute("""
+            INSERT INTO user_state (user_id, xp, current_streak, longest_streak, last_active_date, placement_level)
+            SELECT 1, xp, current_streak, longest_streak, last_active_date, placement_level
+            FROM user_state_old WHERE id = 1
+        """)
+        conn.execute("DROP TABLE user_state_old")
+
+    # badges_earned: PK cũ là badge_id — dựng lại theo (user_id, badge_id).
+    if not _has_column(conn, "badges_earned", "user_id"):
+        conn.execute("ALTER TABLE badges_earned RENAME TO badges_earned_old")
+        conn.execute("""
+            CREATE TABLE badges_earned (
+                user_id INTEGER NOT NULL DEFAULT 1,
+                badge_id TEXT NOT NULL,
+                earned_at TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (user_id, badge_id)
+            )
+        """)
+        conn.execute("""
+            INSERT INTO badges_earned (user_id, badge_id, earned_at)
+            SELECT 1, badge_id, earned_at FROM badges_earned_old
+        """)
+        conn.execute("DROP TABLE badges_earned_old")
+
+    # ai_chat_usage: PK cũ là day — dựng lại theo (user_id, day).
+    if not _has_column(conn, "ai_chat_usage", "user_id"):
+        conn.execute("ALTER TABLE ai_chat_usage RENAME TO ai_chat_usage_old")
+        conn.execute("""
+            CREATE TABLE ai_chat_usage (
+                user_id INTEGER NOT NULL DEFAULT 1,
+                day TEXT NOT NULL,
+                count INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, day)
+            )
+        """)
+        conn.execute("""
+            INSERT INTO ai_chat_usage (user_id, day, count)
+            SELECT 1, day, count FROM ai_chat_usage_old
+        """)
+        conn.execute("DROP TABLE ai_chat_usage_old")
+
+    conn.commit()
+
+
 def _dedupe_user_words(conn):
     dupes = conn.execute(
-        "SELECT word_id FROM user_words GROUP BY word_id HAVING COUNT(*) > 1"
+        "SELECT user_id, word_id FROM user_words GROUP BY user_id, word_id HAVING COUNT(*) > 1"
     ).fetchall()
     removed = 0
     for row in dupes:
         rows = conn.execute(
-            "SELECT id FROM user_words WHERE word_id=? ORDER BY repetitions DESC, id ASC",
-            (row["word_id"],)
+            "SELECT id FROM user_words WHERE user_id=? AND word_id=? ORDER BY repetitions DESC, id ASC",
+            (row["user_id"], row["word_id"])
         ).fetchall()
         drop_ids = [r["id"] for r in rows[1:]]
         conn.executemany("DELETE FROM user_words WHERE id=?", [(i,) for i in drop_ids])

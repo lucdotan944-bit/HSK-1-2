@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { api, meaningsList, type Word } from "@/lib/api";
 import { Card, Button, ProgressBar } from "@/components/ui";
 import PronunciationButton from "@/components/PronunciationButton";
@@ -19,7 +20,18 @@ const GRADES = [
 ];
 
 export default function ReviewPage() {
+  // useSearchParams cần Suspense boundary khi prerender
+  return (
+    <Suspense>
+      <ReviewInner />
+    </Suspense>
+  );
+}
+
+function ReviewInner() {
   const { announce, toastNode } = useBadgeToast();
+  // mode=mistakes: ôn riêng những từ đã trả lời sai (từ /progress)
+  const mistakesMode = useSearchParams().get("mode") === "mistakes";
   const [level] = usePreferredLevel(2);
   const [due, setDue] = useState<number | null>(null);
   const [words, setWords] = useState<Word[] | null>(null);
@@ -47,7 +59,7 @@ export default function ReviewPage() {
 
   async function start() {
     try {
-      const data = await api.reviewWords(level, 20);
+      const data = mistakesMode ? await api.mistakeWords() : await api.reviewWords(level, 20);
       if (!data.words.length) {
         setDone(true);
         return;
@@ -117,6 +129,17 @@ export default function ReviewPage() {
   }
 
   if (!words && !done) {
+    if (mistakesMode) {
+      return (
+        <div className="mx-auto max-w-md space-y-4 text-center">
+          <h1 className="font-display text-2xl font-bold">Ôn lại từ đã sai</h1>
+          <p className="text-ink-soft">
+            Ôn riêng những từ bạn trả lời sai trong 30 ngày qua — sai nhiều ôn trước.
+          </p>
+          <Button onClick={start}>Bắt đầu ôn từ sai</Button>
+        </div>
+      );
+    }
     return (
       <div className="mx-auto max-w-md space-y-4 text-center">
         <h1 className="font-display text-2xl font-bold">Ôn tập theo Spaced Repetition</h1>
@@ -141,8 +164,14 @@ export default function ReviewPage() {
       <div className="mx-auto max-w-md space-y-4 text-center">
         {toastNode}
         <p className="text-5xl">🎉</p>
-        <h1 className="font-display text-2xl font-bold">Hết từ cần ôn!</h1>
-        <p className="text-ink-soft">Quay lại sau để ôn tiếp theo lịch trình spaced repetition.</p>
+        <h1 className="font-display text-2xl font-bold">
+          {mistakesMode ? "Không còn từ sai để ôn!" : "Hết từ cần ôn!"}
+        </h1>
+        <p className="text-ink-soft">
+          {mistakesMode
+            ? "Tuyệt vời — bạn đã ôn hết những từ từng trả lời sai gần đây."
+            : "Quay lại sau để ôn tiếp theo lịch trình spaced repetition."}
+        </p>
         <Link href="/">
           <Button variant="ghost">Về trang chủ</Button>
         </Link>

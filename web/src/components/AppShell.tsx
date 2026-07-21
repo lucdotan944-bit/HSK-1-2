@@ -4,11 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import SealStamp from "./SealStamp";
+import { api, AuthMe } from "@/lib/api";
 
 const NAV = [
   { href: "/", label: "Trang chủ", icon: "宅" },
   { href: "/daily", label: "Học 5 phút", icon: "钟" },
   { href: "/review", label: "Ôn tập", icon: "复" },
+  { href: "/grammar", label: "Ngữ pháp", icon: "法" },
   { href: "/dialogues", label: "Hội thoại", icon: "话" },
   { href: "/exam", label: "Thi thử", icon: "试" },
   { href: "/progress", label: "Tiến độ", icon: "进" },
@@ -43,6 +45,38 @@ function ThemeToggle() {
   );
 }
 
+function AccountButton() {
+  const pathname = usePathname();
+  const [me, setMe] = useState<AuthMe | null>(null);
+
+  // Refetch khi đổi trang: login/logout điều hướng nên trạng thái luôn mới.
+  useEffect(() => {
+    let cancelled = false;
+    api.authMe().then((m) => {
+      if (!cancelled) setMe(m);
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  const authed = me?.authenticated;
+  const initial = (me?.display_name || me?.email || "").charAt(0).toUpperCase();
+  return (
+    <Link
+      href={authed ? "/account" : "/login"}
+      aria-label={authed ? "Tài khoản" : "Đăng nhập"}
+      className={`flex h-9 w-9 items-center justify-center rounded-full border text-sm font-semibold transition-colors ${
+        authed
+          ? "border-jade bg-jade text-white"
+          : "border-line text-ink-soft hover:bg-paper-raised hover:text-ink"
+      }`}
+    >
+      {authed && initial ? initial : "登"}
+    </Link>
+  );
+}
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
@@ -69,7 +103,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             ))}
           </nav>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            <AccountButton />
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 

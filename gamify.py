@@ -1,4 +1,4 @@
-"""Gamification: XP, streak, huy hiệu — single-user singleton state.
+"""Gamification: XP, streak, huy hiệu — theo từng người dùng (user_id).
 
 Các hàm nhận conn đang mở và KHÔNG tự commit — caller chịu trách nhiệm commit
 để có thể gộp chung transaction với ghi dữ liệu của endpoint.
@@ -17,16 +17,27 @@ XP_PLACEMENT_TEST = 50
 XP_AI_CHAT_TURN = 3
 
 
-def award_xp(conn, amount, reason):
-    """Cộng XP vào user_state (singleton id=1) và ghi log."""
-    conn.execute("UPDATE user_state SET xp = xp + ? WHERE id = 1", (amount,))
-    conn.execute("INSERT INTO xp_log (amount, reason) VALUES (?, ?)", (amount, reason))
+def ensure_state(conn, user_id):
+    """Bảo đảm user có dòng user_state (user mới tạo giữa chừng, DB cũ...)."""
+    conn.execute("INSERT OR IGNORE INTO user_state (user_id) VALUES (?)", (user_id,))
 
 
-def touch_streak(conn):
+def award_xp(conn, user_id, amount, reason):
+    """Cộng XP vào user_state của user và ghi log."""
+    ensure_state(conn, user_id)
+    conn.execute("UPDATE user_state SET xp = xp + ? WHERE user_id = ?", (amount, user_id))
+    conn.execute(
+        "INSERT INTO xp_log (user_id, amount, reason) VALUES (?, ?, ?)",
+        (user_id, amount, reason),
+    )
+
+
+def touch_streak(conn, user_id):
     """Gọi mỗi khi có hoạt động học. Cập nhật streak theo ngày (strict: bỏ 1 ngày là reset)."""
+    ensure_state(conn, user_id)
     row = conn.execute(
-        "SELECT last_active_date, current_streak, longest_streak FROM user_state WHERE id=1"
+        "SELECT last_active_date, current_streak, longest_streak FROM user_state WHERE user_id=?",
+        (user_id,),
     ).fetchone()
     today = date.today().isoformat()
     last = row["last_active_date"]
@@ -39,31 +50,50 @@ def touch_streak(conn):
         new_streak = row["current_streak"] + 1 if gap_days == 1 else 1
     longest = max(row["longest_streak"], new_streak)
     conn.execute(
-        "UPDATE user_state SET current_streak=?, longest_streak=?, last_active_date=? WHERE id=1",
-        (new_streak, longest, today),
+        "UPDATE user_state SET current_streak=?, longest_streak=?, last_active_date=? WHERE user_id=?",
+        (new_streak, longest, today, user_id),
     )
 
 
-def check_badges(conn):
+def check_badges(conn, user_id):
     """Kiểm tra điều kiện huy hiệu, ghi huy hiệu mới đạt. Trả về list badge_id mới."""
+    ensure_state(conn, user_id)
     newly_earned = []
-    already = {r["badge_id"] for r in conn.execute("SELECT badge_id FROM badges_earned").fetchall()}
+    already = {
+        r["badge_id"]
+        for r in conn.execute(
+            "SELECT badge_id FROM badges_earned WHERE user_id=?", (user_id,)
+        ).fetchall()
+    }
 
-    state = conn.execute("SELECT xp, current_streak FROM user_state WHERE id=1").fetchone()
+    state = conn.execute(
+        "SELECT xp, current_streak FROM user_state WHERE user_id=?", (user_id,)
+    ).fetchone()
     total_reviews = conn.execute(
-        "SELECT COUNT(*) FROM quiz_results WHERE quiz_type='review'"
+        "SELECT COUNT(*) FROM quiz_results WHERE quiz_type='review' AND user_id=?",
+        (user_id,),
     ).fetchone()[0]
     mastered_words = conn.execute(
-        "SELECT COUNT(*) FROM user_words WHERE repetitions >= 5"
+        "SELECT COUNT(*) FROM user_words WHERE repetitions >= 5 AND user_id=?",
+        (user_id,),
     ).fetchone()[0]
-    writing_practiced = conn.execute("SELECT COUNT(*) FROM writing_practice").fetchone()[0]
+    writing_practiced = conn.execute(
+        "SELECT COUNT(*) FROM writing_practice WHERE user_id=?", (user_id,)
+    ).fetchone()[0]
     exam_passed_levels = {
-        r["hsk_level"] for r in conn.execute("SELECT DISTINCT hsk_level FROM exam_sessions WHERE passed=1").fetchall()
+        r["hsk_level"]
+        for r in conn.execute(
+            "SELECT DISTINCT hsk_level FROM exam_sessions WHERE passed=1 AND user_id=?",
+            (user_id,),
+        ).fetchall()
     }
 
     def award_if_new(badge_id, condition):
         if badge_id not in already and condition:
-            conn.execute("INSERT INTO badges_earned (badge_id) VALUES (?)", (badge_id,))
+            conn.execute(
+                "INSERT INTO badges_earned (user_id, badge_id) VALUES (?, ?)",
+                (user_id, badge_id),
+            )
             newly_earned.append(badge_id)
 
     award_if_new("streak_3", state["current_streak"] >= 3)
